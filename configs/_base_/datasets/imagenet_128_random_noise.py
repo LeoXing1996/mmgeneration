@@ -4,6 +4,8 @@ dataset_type = 'mmcls.ImageNet'
 # different from mmcls, we adopt the setting used in BigGAN.
 # We use `RandomCropLongEdge` in training and `CenterCropLongEdge` in testing.
 # Importantly, the `to_rgb` is set to `False` to remain image orders as BGR.
+
+# In this config, we additional add `RandomImgNoise` augmentation to image.
 img_norm_cfg = dict(
     mean=[127.5, 127.5, 127.5], std=[127.5, 127.5, 127.5], to_rgb=False)
 train_pipeline = [
@@ -21,11 +23,7 @@ train_pipeline = [
 test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(type='CenterCropLongEdge', keys=['img']),
-    dict(
-        type='Resize',
-        size=(128, 128),
-        interpolation='bicubic',
-        backend='pillow'),
+    dict(type='Resize', size=(128, 128), backend='pillow'),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='ImageToTensor', keys=['img']),
     dict(type='Collect', keys=['img'])
