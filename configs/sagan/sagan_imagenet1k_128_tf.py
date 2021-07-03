@@ -1,6 +1,9 @@
 # in SAGAN's official tensorflow implementation, author use tfrecord extracted
 # by script from improved-gan, which use center-crop in train pipeline, refers
 # to https://github.com/openai/improved-gan/blob/master/imagenet/convert_imagenet_to_records.py  # noqa
+
+# To be noted that, this config should be trained with 4 gpus.
+
 _base_ = [
     '../_base_/models/sagan_128x128.py', '../_base_/datasets/imagenet_128.py'
     '../_base_/default_runtime.py'

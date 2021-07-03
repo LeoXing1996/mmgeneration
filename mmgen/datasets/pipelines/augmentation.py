@@ -308,13 +308,14 @@ class RandomImgNoise:
             dist_fn = np.random.randn
 
         for key in self.keys:
-            img_size = results[key].shape
+            img = results[key].copy().astype(np.float32)
+            img_size = img.shape
             noise = dist_fn(*img_size)
             scale = noise.max() - noise.min()
             noise = noise - noise.min()
             noise = noise / scale * (self.upper_bound - self.lower_bound)
             noise = noise + self.lower_bound
-            results[key] += noise
+            results[key] = img + noise
 
         return results
 
