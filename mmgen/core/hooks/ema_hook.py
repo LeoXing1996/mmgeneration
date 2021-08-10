@@ -64,8 +64,31 @@ class ExponentialMovingAverageHook(Hook):
             getattr(self, interp_mode), **self.interp_cfg)
 
     @staticmethod
-    def lerp(a, b, momentum=0.999, momentum_nontrainable=0., trainable=True):
+    def lerp(a,
+             b,
+             *args,
+             momentum=0.999,
+             momentum_nontrainable=0.,
+             trainable=True):
         m = momentum if trainable else momentum_nontrainable
+        return a + (b - a) * m
+
+    @staticmethod
+    def prefix_lerp(a,
+                    b,
+                    k,
+                    *args,
+                    momentum=0.999,
+                    momentum_nontrainable=0.,
+                    trainable=True,
+                    prefix_momentum_dict=dict()):
+        m = None
+        for prefix, m_ in prefix_momentum_dict.items():
+            if prefix in k:
+                m = m_
+                break
+        if m is None:
+            m = momentum if trainable else momentum_nontrainable
         return a + (b - a) * m
 
     def every_n_iters(self, runner, n):
@@ -94,7 +117,8 @@ class ExponentialMovingAverageHook(Hook):
                     states_ema[k].data.copy_(v.data)
                 else:
                     states_ema[k] = self.interp_func(
-                        v, states_ema[k], trainable=v.requires_grad).detach()
+                        v, states_ema[k], k,
+                        trainable=v.requires_grad).detach()
             ema_net.load_state_dict(states_ema, strict=True)
 
     def before_run(self, runner):
