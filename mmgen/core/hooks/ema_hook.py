@@ -4,6 +4,7 @@ from functools import partial
 
 import mmcv
 import torch
+import torch.nn.functional as F
 from mmcv.parallel import is_module_wrapper
 from mmcv.runner import HOOKS, Hook
 
@@ -66,7 +67,7 @@ class ExponentialMovingAverageHook(Hook):
     @staticmethod
     def lerp(a,
              b,
-             *args,
+             k,
              momentum=0.999,
              momentum_nontrainable=0.,
              trainable=True):
@@ -77,7 +78,6 @@ class ExponentialMovingAverageHook(Hook):
     def prefix_lerp(a,
                     b,
                     k,
-                    *args,
                     momentum=0.999,
                     momentum_nontrainable=0.,
                     trainable=True,
@@ -119,6 +119,7 @@ class ExponentialMovingAverageHook(Hook):
                     states_ema[k] = self.interp_func(
                         v, states_ema[k], k,
                         trainable=v.requires_grad).detach()
+            update_v(states_ema)
             ema_net.load_state_dict(states_ema, strict=True)
 
     def before_run(self, runner):
@@ -134,3 +135,72 @@ class ExponentialMovingAverageHook(Hook):
                 warnings.warn(
                     f'We do not suggest construct and initialize EMA model {k}'
                     ' in hook. You may explicitly define it by yourself.')
+
+
+# Projection of x onto y
+def proj(x, y):
+    return torch.mm(y, x.t()) * y / torch.mm(y, y.t())
+
+
+def gram_schmidt(x, ys):
+    """Orthogonalize x wrt list of vectors ys."""
+    for y in ys:
+        x = x - proj(x, y)
+    return x
+
+
+def power_iteration(W, u_, update=True, eps=1e-12):
+    """Apply num_itrs steps of the power method to estimate top N singular
+    values."""
+    # Lists holding singular vectors and values
+    us, vs, svs = [], [], []
+    for i, u in enumerate(u_):
+        # Run one step of the power iteration
+        with torch.no_grad():
+            v = torch.matmul(u, W)
+            # Run Gram-Schmidt to subtract components of all other
+            # singular vectors
+            v = F.normalize(gram_schmidt(v, vs), eps=eps)
+            # Add to the list
+            vs += [v]
+            # Update the other singular vector
+            u = torch.matmul(v, W.t())
+            # Run Gram-Schmidt to subtract components of all other
+            # singular vectors
+            u = F.normalize(gram_schmidt(u, us), eps=eps)
+            # Add to the list
+            us += [u]
+            if update:
+                u_[i][:] = u
+        # Compute this singular value and add it to the list
+        svs += [torch.squeeze(torch.matmul(torch.matmul(v, W.t()), u.t()))]
+    return svs, us, vs
+
+
+def solve_v_and_rescale(weight_mat, u, target_sigma):
+    # Tries to returns a vector `v` s.t. `u = normalize(W @ v)`
+    # (the invariant at top of this class) and `u @ W @ v = sigma`.
+    # This uses pinverse in case W^T W is not invertible.
+    # v = torch.linalg.multi_dot([
+    #     weight_mat.t().mm(weight_mat).pinverse(),
+    #     weight_mat.t(),
+    #     u.unsqueeze(1)
+    # ]).squeeze(1)
+    v = ((weight_mat.t() @ weight_mat).pinverse() @ weight_mat.t()
+         @ u.unsqueeze(1)).squeeze()
+
+    return v.mul_(target_sigma / torch.dot(u, torch.mv(weight_mat, v)))
+
+
+def update_v(state_dict):
+    for m in state_dict.keys():
+        # TODO: may be a more elegant way
+        if '_v' in m:
+            weight = state_dict[m.replace('_v', '_orig')]
+            weight = weight.reshape(weight.size(0), -1)
+
+            u = state_dict[m.replace('_v', '_u')]
+            svs, us, vs = power_iteration(
+                weight.clone(), deepcopy([u.unsqueeze(0)]), update=False)
+            v = solve_v_and_rescale(weight, u, svs[0])
+            state_dict[m].data.copy_(v)

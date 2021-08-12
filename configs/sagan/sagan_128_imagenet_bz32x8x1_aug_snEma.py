@@ -26,8 +26,7 @@ model = dict(
 
 disc_step = 1
 n_accu = 1
-
-n_disc = n_accu * disc_step
+n_disc = disc_step * n_accu
 
 train_cfg = dict(
     disc_steps=n_disc, batch_accumulation_steps=n_accu, use_ema=True)
@@ -42,14 +41,10 @@ custom_hooks = [
     dict(
         type='ExponentialMovingAverageHook',
         module_keys=('generator_ema'),
-        interval=10,
-        start_iter=20,
-        interp_mode='prefix_lerp',
-        interp_cfg=dict(
-            momentum=0.9999,
-            momentum_nontrainable=0.999,
-            prefix_momentum_dict=dict(weight_u=1, weight_v=1)),
-        priority='VERY_HIGH'),
+        interval=n_disc,
+        start_iter=2000 * n_disc,
+        interp_cfg=dict(momentum=0.9999, momentum_nontrainable=0.999),
+        priority='VERY_HIGH')
 ]
 
 inception_pkl = './work_dirs/inception_pkl/imagenet.pkl'
