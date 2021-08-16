@@ -48,7 +48,7 @@ custom_hooks = [
         interp_cfg=dict(
             momentum=0.9999,
             momentum_nontrainable=0.999,
-            prefix_momentum_dict=dict(weight_u=1, weight_v=1)),
+            prefix_momentum_dict=dict(weight_u=0, weight_v=0)),
         priority='VERY_HIGH'),
 ]
 
