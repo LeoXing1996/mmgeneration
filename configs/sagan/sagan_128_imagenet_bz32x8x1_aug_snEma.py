@@ -44,6 +44,7 @@ custom_hooks = [
         interval=n_disc,
         start_iter=2000 * n_disc,
         interp_cfg=dict(momentum=0.9999, momentum_nontrainable=0.999),
+        update_sn=True,
         priority='VERY_HIGH')
 ]
 

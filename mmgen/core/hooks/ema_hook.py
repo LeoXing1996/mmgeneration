@@ -42,6 +42,7 @@ class ExponentialMovingAverageHook(Hook):
                  interp_mode='lerp',
                  interp_cfg=None,
                  interval=-1,
+                 update_sn=False,
                  start_iter=0):
         super().__init__()
         assert isinstance(module_keys, str) or mmcv.is_tuple_of(
@@ -57,6 +58,7 @@ class ExponentialMovingAverageHook(Hook):
             interp_cfg)
         self.interval = interval
         self.start_iter = start_iter
+        self.update_sn = update_sn
 
         assert hasattr(
             self, interp_mode
@@ -119,7 +121,13 @@ class ExponentialMovingAverageHook(Hook):
                     states_ema[k] = self.interp_func(
                         v, states_ema[k], k,
                         trainable=v.requires_grad).detach()
-            update_v(states_ema)
+            if runner.iter >= self.start_iter and self.update_sn:
+                # import time
+                # s_time = time.time()
+                # update_v(states_ema)
+                # e_time = time.time()
+                # print(f'update v cost: {e_time - s_time}')
+                update_v(states_ema, fast=True)
             ema_net.load_state_dict(states_ema, strict=True)
 
     def before_run(self, runner):
@@ -186,21 +194,32 @@ def solve_v_and_rescale(weight_mat, u, target_sigma):
     #     weight_mat.t(),
     #     u.unsqueeze(1)
     # ]).squeeze(1)
-    v = ((weight_mat.t() @ weight_mat).pinverse() @ weight_mat.t()
-         @ u.unsqueeze(1)).squeeze()
+    # v = ((weight_mat.t() @ weight_mat).pinverse() @ weight_mat.t()
+    #      @ u.unsqueeze(1)).squeeze()
 
+    v = torch.chain_matmul(weight_mat.t().mm(weight_mat).pinverse(),
+                           weight_mat.t(), u.unsqueeze(1)).squeeze(1)
     return v.mul_(target_sigma / torch.dot(u, torch.mv(weight_mat, v)))
 
 
-def update_v(state_dict):
+def update_v(state_dict, fast=False):
     for m in state_dict.keys():
         # TODO: may be a more elegant way
-        if '_v' in m:
+        m_list = m.split('.')
+        if 'weight_v' in m_list:
             weight = state_dict[m.replace('_v', '_orig')]
-            weight = weight.reshape(weight.size(0), -1)
-
             u = state_dict[m.replace('_v', '_u')]
-            svs, us, vs = power_iteration(
-                weight.clone(), deepcopy([u.unsqueeze(0)]), update=False)
-            v = solve_v_and_rescale(weight, u, svs[0])
+            weight = weight.reshape(weight.size(0), -1)
+            if not fast:
+                svs, us, vs = power_iteration(
+                    weight.clone(), deepcopy([u.unsqueeze(0)]), update=False)
+                v = solve_v_and_rescale(weight, u, svs[0])
+                # print(f'Diff [v - vs] {torch.abs(v - vs[0]).max()}')
+                # print(f'Diff [v - v old] {torch.abs(v - v_old).max()}')
+            else:
+                from torch.nn.functional import normalize
+                v = state_dict[m]
+                v = normalize(torch.mv(weight.t(), u), dim=0, eps=1e-8, out=v)
+                u = normalize(torch.mv(weight, v), dim=0, eps=1e-8, out=u)
+                state_dict[m.replace('_v', '_u')].data.copy_(u)
             state_dict[m].data.copy_(v)
