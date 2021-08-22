@@ -8,7 +8,7 @@
 # add the frequency for log and vis to inspect what cause collapse
 _base_ = [
     '../_base_/models/sagan_128x128.py',
-    '../_base_/datasets/imagenet_128_memcache.py',
+    '../_base_/datasets/imagenet_noaug_128_memcache.py',
     '../_base_/default_runtime.py'
 ]
 

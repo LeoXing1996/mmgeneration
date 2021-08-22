@@ -8,7 +8,7 @@
 # add the frequency for log and vis to inspect what cause collapse
 _base_ = [
     '../_base_/models/sagan_128x128.py',
-    '../_base_/datasets/imagenet_128_memcache.py',
+    '../_base_/datasets/imagenet_noaug_128_memcache.py',
     '../_base_/default_runtime.py'
 ]
 
@@ -43,12 +43,9 @@ custom_hooks = [
         module_keys=('generator_ema'),
         interval=n_disc,
         start_iter=2000 * n_disc,
-        interp_mode='prefix_lerp',
-        interp_cfg=dict(
-            momentum=0.9999,
-            momentum_nontrainable=0.999,
-            prefix_momentum_dict=dict(weight_u=0, weight_v=0)),
-        priority='VERY_HIGH'),
+        interp_cfg=dict(momentum=0.9999, momentum_nontrainable=0.999),
+        update_sn=True,
+        priority='VERY_HIGH')
 ]
 
 inception_pkl = './work_dirs/inception_pkl/imagenet.pkl'
