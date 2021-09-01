@@ -57,8 +57,15 @@ def load_inception(inception_args, metric):
         mmcv.print_log(
             'Current Pytorch Version not support script module, load '
             'Inception Model from torch model zoo. If you want to use '
-            'Tero\' script model, please update your Pytorch higher '
-            f'than \'1.6\' (now is {torch.__version__})', 'mmgen')
+            'Tero\' script model, please make sure your Pytorch >= 1.6, '
+            f'< 1.9 (now is {torch.__version__})', 'mmgen')
+        return _load_inception_torch(_inception_args, metric), 'pytorch'
+    elif torch.__version__ > '1.9.0':
+        mmcv.print_log(
+            'Current Pytorch Version may have error when inference with '
+            'script module, load Inception Model from torch model zoo. '
+            'If you want to use Tero\' script model, please make sure '
+            f'your Pytorch>=1.6, <1.9 (now is {torch.__version__})', 'mmgen')
         return _load_inception_torch(_inception_args, metric), 'pytorch'
 
     # load pytorch version is specific
