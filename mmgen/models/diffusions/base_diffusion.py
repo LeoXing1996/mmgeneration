@@ -45,6 +45,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         self.fp16_enable = False
         # build denoising in this function
         self.num_classes = num_classes
+        self.num_timesteps = num_timesteps
         self.sample_method = sample_method
         self._denoising_cfg = deepcopy(denoising)
         self.denoising = build_module(
@@ -198,11 +199,14 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                             label=None,
                             timestep=None,
                             return_noise=False):
-        """Reconstruction step.
+        """Reconstruction step at corresponding `timestep`.
 
         ``sample_from_noise`` focus on generate samples start from **random
         (or given) noise**. Therefore, we design this function to release a
         reconstruction with respect to the given images.
+
+        If `timestep` is None, automatically perform reconstruction at all
+        timesteps.
 
         Args:
             data_batch (dict): Input data from dataloader.
@@ -212,15 +216,16 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         """
         # 0. prepare for timestep, noise and label
         real_imgs = data_batch[self.real_img_key]
-        num_batch, noise_size = real_imgs.shape[0], real_imgs.shape[2]
+        # num_batches, noise_size = real_imgs.shape[0], real_imgs.shape[2]
+        num_batches = real_imgs.shape[0]
         if timestep is None:
             timestep = torch.Tensor([t for t in range(self.num_timesteps)
-                                     ]).expand([num_batch, 1])
+                                     ]).expand([num_batches, 1])
         if isinstance(timestep, (int, list)):
             timestep = torch.Tensor(timestep)
         elif callable(timestep):
             timestep_generator = timestep
-            timestep = timestep_generator((num_batch, ))
+            timestep = timestep_generator((num_batches, ))
         else:
             assert isinstance(timestep, torch.Tensor), (
                 'we only support int list tensor or a callable function')
@@ -236,10 +241,11 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                 'Receive \'label\' in both data_batch and passed arguments.')
         if label is None:
             label = data_batch['label'] if 'label' in data_batch else None
-        noise_batch = self._get_noise_batch(noise, num_batch, noise_size)
+        # noise_batch = self.get_noise(noise, num_batch, noise_size)
+        noise_batch = self.get_noise(noise, num_batches=num_batches)
 
         # 1. get diffusion results and parameters
-        diffusion_batches = self.q_sample(real_imgs, noise_batch)
+        diffusion_batches = self.q_sample(real_imgs, timestep, noise_batch)
         # 2. get denoising results. Set return_noise=False here for ``label``
         # and ``t`` can be directly accessed
         denoising_batches = self.denoising(
@@ -355,22 +361,26 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                 contains denoising results of each timestep would be returned.
                 Otherwise, only the final denoising result would be returned.
         """
-        x_t = self._get_noise_batch(noise, num_batches)
+        device = get_module_device(self)
+        x_t = self.get_noise(noise, num_batches=num_batches, device=device)
         if save_intermedia:
             # save input
             intermedia = [x_t.clone()]
 
         # use timesteps noise if defined
         if timesteps_noise is not None:
-            timesteps_noise = self._get_noise_batch(
-                timesteps_noise, num_batches, timesteps_noise=True)
+            timesteps_noise = self.get_noise(
+                timesteps_noise,
+                num_batches=num_batches,
+                timesteps_noise=True,
+                device=device)
 
         # TODO: remove self for batched_timesteps
         if not hasattr(self, 'batched_timesteps'):
             self.batched_timesteps = torch.arange(self.num_timesteps - 1, -1,
-                                                  -1).long()
-            if torch.cuda.is_available():
-                self.batched_timesteps = self.batched_timesteps.cuda()
+                                                  -1).long().to(device)
+            # if torch.cuda.is_available():
+            #     self.batched_timesteps = self.batched_timesteps.cuda()
 
         for t in self.batched_timesteps:
             batched_t = t.expand(x_t.shape[0])
@@ -716,7 +726,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         var_pred = p_output['var_pred']
 
         num_batches = x_t.shape[0]
-        noise = self._get_noise_batch(noise, num_batches)
+        noise = self.get_noise(noise, num_batches=num_batches)
         nonzero_mask = ((t != 0).float().view(-1,
                                               *([1] * (len(x_t.shape) - 1))))
 
@@ -730,7 +740,6 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
             return dict(
                 fake_image=sample,
                 noise_batch=noise,
-                label=label,
                 **denoising_output,
                 **p_output)
         return sample

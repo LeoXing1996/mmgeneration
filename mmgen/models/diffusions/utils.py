@@ -5,7 +5,8 @@ def _get_noise_batch(noise,
                      image_shape,
                      num_timesteps=0,
                      num_batches=0,
-                     timesteps_noise=False):
+                     timesteps_noise=False,
+                     device=None):
     """Get noise batch. Support get sequeue of noise along timesteps.
     If passed noise is a torch.Tensor,
         1. timesteps_noise == True
@@ -41,6 +42,8 @@ def _get_noise_batch(noise,
         timesteps_noise (bool, optional): If True, returned noise would shape
             as [n, bz, c, h, w], otherwise shape as [bz, c, h, w].
             Defaults to False.
+        device (str, optional): If not ``None``, move the generated noise to
+            corresponding device.
     Returns:
         torch.Tensor: Generated noise with desired shape.
 
@@ -49,8 +52,8 @@ def _get_noise_batch(noise,
         # conduct sanity check for the last three dimension
         assert noise.shape[-3:] == image_shape
         if timesteps_noise:
-            assert num_batches > 0 and num_timesteps > 0
             if noise.ndim == 4:
+                assert num_batches > 0 and num_timesteps > 0
                 if noise.shape[0] == num_timesteps:
                     noise_batch = noise.view(num_timesteps, 1, *image_shape)
                     noise_batch = noise_batch.expand(-1, num_batches, -1, -1)
@@ -100,6 +103,8 @@ def _get_noise_batch(noise,
                 (num_timesteps, num_batches, *image_shape))
         else:
             noise_batch = torch.randn((num_batches, *image_shape))
+    if device is not None:
+        noise_batch = noise_batch.to(device)
 
     return noise_batch
 
@@ -108,7 +113,8 @@ def _get_label_batch(label,
                      num_timesteps=0,
                      num_classes=0,
                      num_batches=0,
-                     timesteps_noise=False):
+                     timesteps_noise=False,
+                     device=None):
     """Get label batch. Support get sequeue of label along timesteps.
     If passed label is a torch.Tensor,
         0. num_classes <= 0
@@ -158,8 +164,8 @@ def _get_label_batch(label,
     # receive label and conduct sanity check.
     if isinstance(label, torch.Tensor):
         if timesteps_noise:
-            assert num_batches > 0 and num_timesteps > 0
             if label.ndim == 1:
+                assert num_batches > 0 and num_timesteps > 0
                 if label.shape[0] == num_timesteps:
                     label_batch = label.view(num_timesteps, 1)
                     label_batch = label_batch.expand(-1, num_batches)
