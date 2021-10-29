@@ -1,11 +1,6 @@
-# MODEL_FLAGS="--image_size 32 --num_channels 128 --num_res_blocks 3 --learn_sigma True --dropout 0.3"  # noqa
-# DIFFUSION_FLAGS="--diffusion_steps 4000 --noise_schedule cosine"
-# TRAIN_FLAGS="--lr 1e-4 --batch_size 128"
-
 model = dict(
     type='BasicGaussianDiffusion',
     num_timesteps=4000,
-    # betas_cfg=dict(type='linear', beta_0=1e-4, beta_T=2e-2),
     betas_cfg=dict(type='cosine'),
     denoising=dict(
         type='DenoisingUnet',
@@ -18,4 +13,33 @@ model = dict(
         dropout=0.3,
         num_heads=4,
         rescale_timesteps=True,
-        output_cfg=dict(mean='eps', var='learned_range')))
+        output_cfg=dict(mean='eps', var='learned_range')),
+    timestep_sampler=dict(type='UniformTimeStepSampler'),
+    ddpm_loss=[
+        dict(
+            type='DDPMVLBLoss',
+            rescale_mode='constant',
+            rescale_cfg=dict(scale=4000 / 1000),
+            data_info=dict(
+                mean_pred='mean_pred',
+                mean_target='mean_posterior',
+                logvar_pred='logvar_pred',
+                logvar_target='logvar_posterior'),
+            log_cfgs=[
+                dict(
+                    type='quartile',
+                    prefix_name='loss_vlb',
+                    total_timesteps=4000),
+                dict(type='name')
+            ]),
+        dict(
+            type='DDPMMSELoss',
+            log_cfgs=dict(
+                type='quartile', prefix_name='loss_mse', total_timesteps=4000),
+        )
+    ],
+)
+
+train_cfg = dict(use_ema=False, real_img_key='img')
+test_cfg = None
+optimizer = dict(denoising=dict(type='AdamW', lr=1e-4, weight_decay=0))

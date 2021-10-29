@@ -169,6 +169,13 @@ class DynamicIterBasedRunner(IterBasedRunner):
         # flag to use amp in apex (NVIDIA)
         self.use_apex_amp = use_apex_amp
 
+        # TODO: just for debug
+        with open(
+                '/space0/home/xingzn/code/improved-diffusion/work_dirs/'
+                'CIFAR10_hybird/w_and_g.pkl', 'rb') as file:
+            import pickle
+            self.inp = pickle.load(file)['inp']
+
     def call_hook(self, fn_name):
         """Call all hooks.
 
@@ -196,6 +203,11 @@ class DynamicIterBasedRunner(IterBasedRunner):
         self.call_hook('before_fetch_train_data')
         data_batch = next(self.data_loader)
         self.call_hook('before_train_iter')
+
+        # TODO: here we manually monk the input data for debug
+        data_batch['img'] = self.inp[self.iter]['x_start']
+        data_batch['t'] = self.inp[self.iter]['t']
+        data_batch['noise'] = self.inp[self.iter]['noise']
 
         # prepare input args for train_step
         # running status

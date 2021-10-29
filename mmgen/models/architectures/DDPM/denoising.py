@@ -91,7 +91,8 @@ class DenoisingUnet(nn.Module):
         shortcut_kernel_size (int, optional): The kernel size for shortcut
             conv in ResBlocks. The value of this argument would overload the
             default value of `resblock_cfg`. Defaults to `3`.
-        use_scale_shift_norm (bool, optional)
+        use_scale_shift_norm (bool, optional): Whether perform scale and shift
+            after normalization operation. Defaults to True.
         num_heads (int, optional): Number of attention heads. Defaults to 4.
         resblock_cfg (dict, optional): Config for ResBlock. Defaults to
             ``dict(type='DenoisingResBlock')``.
@@ -346,7 +347,7 @@ class DenoisingUnet(nn.Module):
                 # rescale [-1, 1] to [0, 1]
                 output_dict['factor'] = (var + 1) / 2
             elif self.var_cfg.upper() == 'LEARNED':
-                output_dict['log_var'] = var
+                output_dict['logvar'] = var
             else:
                 raise AttributeError(
                     'Only support \'FIXED\', \'LEARNED_RANGE\' '
@@ -364,7 +365,7 @@ class DenoisingUnet(nn.Module):
 
         if return_noise:
             output_dict['x_t'] = x_t
-            output_dict['t'] = t
+            output_dict['t_rescaled'] = t
             output_dict['label'] = label
 
         return output_dict

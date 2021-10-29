@@ -55,6 +55,7 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
+    parser.add_argument('--pickle-name', type=str, default='w_and_g')
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
@@ -135,6 +136,7 @@ def main():
     meta['seed'] = args.seed
     meta['exp_name'] = osp.basename(args.config)
 
+    cfg.model['pickle_name'] = args.pickle_name
     model = build_model(
         cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg)
 

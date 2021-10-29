@@ -5,8 +5,7 @@ def _get_noise_batch(noise,
                      image_shape,
                      num_timesteps=0,
                      num_batches=0,
-                     timesteps_noise=False,
-                     device=None):
+                     timesteps_noise=False):
     """Get noise batch. Support get sequeue of noise along timesteps.
     If passed noise is a torch.Tensor,
         1. timesteps_noise == True
@@ -103,8 +102,6 @@ def _get_noise_batch(noise,
                 (num_timesteps, num_batches, *image_shape))
         else:
             noise_batch = torch.randn((num_batches, *image_shape))
-    if device is not None:
-        noise_batch = noise_batch.to(device)
 
     return noise_batch
 
@@ -113,8 +110,7 @@ def _get_label_batch(label,
                      num_timesteps=0,
                      num_classes=0,
                      num_batches=0,
-                     timesteps_noise=False,
-                     device=None):
+                     timesteps_noise=False):
     """Get label batch. Support get sequeue of label along timesteps.
     If passed label is a torch.Tensor,
         0. num_classes <= 0

@@ -303,6 +303,11 @@ class NormWithEmbedding(nn.Module):
             Defaults to `dict(type='GN', num_groups=32)`.
         act_cfg (dict, optional): Config for the activation layer. Defaults
             to `dict(type='SiLU', inplace=False)`.
+        use_scale_shift (bool): If True, the output of Embedding layer will be
+            splitted to 'scale' and 'shift' and map the output of
+            normalization layer to ``out * (1 + scale) + shift``. Otherwise,
+            the output of Embedding layer will be added with the input before
+            normalization operation. Defaults to True.
     """
 
     def __init__(self,

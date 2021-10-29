@@ -17,6 +17,9 @@ def reduce_loss(loss, reduction):
     if reduction == 'batchmean':
         return loss.sum() / loss.shape[0]
 
+    if reduction == 'flatmean':
+        return loss.mean(dim=list(range(1, loss.ndim)))
+
     reduction_enum = F._Reduction.get_enum(reduction)
     # none: 0, elementwise_mean:1, sum: 2
     if reduction_enum == 0:
