@@ -46,7 +46,9 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                  timestep_sampler='UniformTimeStepSampler',
                  train_cfg=None,
                  test_cfg=None,
-                 pickle_name='w_and_g'):
+                 pickle_name='w_and_g',
+                 save_pickle=False,
+                 save_pickle_interval=10):
         super().__init__()
         self.fp16_enable = False
         # build denoising in this function
@@ -54,7 +56,6 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         self.num_timesteps = num_timesteps
         self.sample_method = sample_method
         self._denoising_cfg = deepcopy(denoising)
-        self.pickle_name = pickle_name
         self.denoising = build_module(
             denoising,
             default_args=dict(
@@ -107,6 +108,9 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         self.prepare_diffusion_vars()
 
         # add just for debug
+        self.pickle_name = pickle_name
+        self.save_pickle = save_pickle
+        self.save_pickle_interval = save_pickle_interval
         self.input_hist = dict()
         self.weight_hist = dict()
         self.grad_hist = dict()
@@ -292,7 +296,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
             self.iteration += 1
 
         # TODO: just for debug
-        if curr_iter + 1 == 10:
+        if curr_iter + 1 == 20:
             import pickle
             with open(f'{self.pickle_name}.pkl', 'wb') as file:
                 pickle.dump(
@@ -497,7 +501,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                 Otherwise, only the final denoising result would be returned.
         """
         device = get_module_device(self)
-        x_t = self.get_noise(noise, num_batches=num_batches, device=device)
+        x_t = self.get_noise(noise, num_batches=num_batches).to(device)
         if save_intermedia:
             # save input
             intermedia = [x_t.clone()]
@@ -508,15 +512,9 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                 timesteps_noise, num_batches=num_batches,
                 timesteps_noise=True).to(device)
 
-        # TODO: remove self for batched_timesteps,
-        #    since we only use this attribute here.
-        if not hasattr(self, 'batched_timesteps'):
-            self.batched_timesteps = torch.arange(self.num_timesteps - 1, -1,
-                                                  -1).long().to(device)
-            # if torch.cuda.is_available():
-            #     self.batched_timesteps = self.batched_timesteps.cuda()
-
-        for t in self.batched_timesteps:
+        batched_timesteps = torch.arange(self.num_timesteps - 1, -1,
+                                         -1).long().to(device)
+        for t in batched_timesteps:
             batched_t = t.expand(x_t.shape[0])
             step_noise = timesteps_noise[t, ...] \
                 if timesteps_noise is not None else None

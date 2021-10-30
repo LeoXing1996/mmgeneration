@@ -1,5 +1,7 @@
 _base_ = [
-    '../_base_/models/ddpm_32x32.py', '../_base_/datasets/cifar10_noaug.py',
+    '../_base_/models/ddpm_32x32.py',
+    # '../_base_/datasets/cifar10_noaug.py',
+    '../_base_/datasets/cifar10_rgb.py',  # use rgb pipeline
     '../_base_/default_runtime.py'
 ]
 
@@ -17,7 +19,7 @@ custom_hooks = [
 evaluation = None
 
 # total_iters = 100000
-total_iters = 10
+total_iters = 20
 # use ddp wrapper for faster training
 use_ddp_wrapper = True
 find_unused_parameters = False
@@ -27,9 +29,14 @@ runner = dict(
     is_dynamic_ddp=False,  # Note that this flag should be False.
     pass_training_status=True)
 
-metric = dict(
+# In Debug,
+# 1. we eval FID with official checkpoint --> therefore bgr2rgb=False
+# 2. we only eval 4000 images to save time.
+
+metrics = dict(
     fid50k=dict(
         type='FID',
-        num_images=50000,
+        num_images=40,
+        bgr2rgb=False,
         inception_pkl=None,
         inception_args=dict(type='StyleGAN')))

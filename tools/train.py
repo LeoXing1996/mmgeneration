@@ -55,6 +55,8 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
+    parser.add_argument('--save-pickle', action='store_true')
+    parser.add_argument('--save-pickle-interval', type=int, default=10)
     parser.add_argument('--pickle-name', type=str, default='w_and_g')
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
@@ -137,6 +139,7 @@ def main():
     meta['exp_name'] = osp.basename(args.config)
 
     cfg.model['pickle_name'] = args.pickle_name
+    cfg.model['save_pickle'] = args.save_pickle
     model = build_model(
         cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg)
 
