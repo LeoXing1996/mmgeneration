@@ -1,9 +1,10 @@
 _base_ = [
-    '../_base_/models/pix2pix_vanilla_unet_bn.py',
-    '../_base_/datasets/paired_imgs_256x256.py', '../_base_/default_runtime.py'
+    '../_base_/models/pix2pix/pix2pix_vanilla_unet_bn.py',
+    '../_base_/datasets/paired_imgs_256x256_crop.py',
+    '../_base_/default_runtime.py'
 ]
-source_domain = 'edges'
-target_domain = 'photo'
+source_domain = 'aerial'
+target_domain = 'map'
 # model settings
 model = dict(
     default_domain=target_domain,
@@ -53,7 +54,7 @@ test_pipeline = [
     dict(
         type='LoadPairedImageFromFile',
         io_backend='disk',
-        key='image',
+        key='pair',
         domain_a=domain_a,
         domain_b=domain_b,
         flag='color'),
@@ -75,11 +76,11 @@ test_pipeline = [
         meta_keys=[f'img_{domain_a}_path', f'img_{domain_b}_path'])
 ]
 
-dataroot = 'data/paired/edges2shoes'
+dataroot = 'data/paired/maps'
 data = dict(
     train=dict(dataroot=dataroot, pipeline=train_pipeline),
-    val=dict(dataroot=dataroot, pipeline=test_pipeline),
-    test=dict(dataroot=dataroot, pipeline=test_pipeline))
+    val=dict(dataroot=dataroot, pipeline=test_pipeline, testdir='val'),
+    test=dict(dataroot=dataroot, pipeline=test_pipeline, testdir='val'))
 
 # optimizer
 optimizer = dict(
@@ -95,17 +96,35 @@ custom_hooks = [
     dict(
         type='MMGenVisualizationHook',
         output_dir='training_samples',
-        res_name_list=['fake_b'],
+        res_name_list=[f'fake_{target_domain}'],
         interval=5000)
 ]
 runner = None
 use_ddp_wrapper = True
 
 # runtime settings
-total_iters = 190000
+total_iters = 220000
 workflow = [('train', 1)]
-exp_name = 'pix2pix_edges2shoes_wo_jitter_flip'
+exp_name = 'pix2pix_aerial2map'
 work_dir = f'./work_dirs/experiments/{exp_name}'
+num_images = 1098
 metrics = dict(
-    FID=dict(type='FID', num_images=200, image_shape=(3, 256, 256)),
-    IS=dict(type='IS', num_images=200, image_shape=(3, 256, 256)))
+    FID=dict(type='FID', num_images=num_images, image_shape=(3, 256, 256)),
+    IS=dict(
+        type='IS',
+        num_images=num_images,
+        image_shape=(3, 256, 256),
+        inception_args=dict(type='pytorch')))
+
+evaluation = dict(
+    type='TranslationEvalHook',
+    target_domain=domain_b,
+    interval=10000,
+    metrics=[
+        dict(type='FID', num_images=num_images, bgr2rgb=True),
+        dict(
+            type='IS',
+            num_images=num_images,
+            inception_args=dict(type='pytorch'))
+    ],
+    best_metric=['fid', 'is'])

@@ -1,12 +1,14 @@
 _base_ = [
-    '../_base_/models/cyclegan_lsgan_resnet.py',
+    '../_base_/models/cyclegan/cyclegan_lsgan_resnet.py',
     '../_base_/datasets/unpaired_imgs_256x256.py',
     '../_base_/default_runtime.py'
 ]
-domain_a = 'horse'
-domain_b = 'zebra'
+train_cfg = dict(buffer_size=50)
+test_cfg = None
+domain_a = 'mask'
+domain_b = 'photo'
 model = dict(
-    default_domain=domain_a,
+    default_domain=domain_b,
     reachable_domains=[domain_a, domain_b],
     related_domains=[domain_a, domain_b],
     gen_auxiliary_loss=[
@@ -27,7 +29,6 @@ model = dict(
             ),
             reduction='mean')
     ])
-dataroot = './data/horse2zebra'
 train_pipeline = [
     dict(
         type='LoadImageFromFile',
@@ -64,14 +65,55 @@ train_pipeline = [
         keys=[f'img_{domain_a}', f'img_{domain_b}'],
         meta_keys=[f'img_{domain_a}_path', f'img_{domain_b}_path'])
 ]
+
+dataroot = './data/unpaired_facades'
+
+test_pipeline = [
+    dict(
+        type='LoadImageFromFile',
+        io_backend='disk',
+        key=f'img_{domain_a}',
+        flag='color'),
+    dict(
+        type='LoadImageFromFile',
+        io_backend='disk',
+        key=f'img_{domain_b}',
+        flag='color'),
+    dict(
+        type='Resize',
+        keys=[f'img_{domain_a}', f'img_{domain_b}'],
+        scale=(256, 256),
+        interpolation='bicubic'),
+    dict(type='RescaleToZeroOne', keys=[f'img_{domain_a}', f'img_{domain_b}']),
+    dict(
+        type='Normalize',
+        keys=[f'img_{domain_a}', f'img_{domain_b}'],
+        to_rgb=False,
+        mean=[0.5, 0.5, 0.5],
+        std=[0.5, 0.5, 0.5]),
+    dict(type='ImageToTensor', keys=[f'img_{domain_a}', f'img_{domain_b}']),
+    dict(
+        type='Collect',
+        keys=[f'img_{domain_a}', f'img_{domain_b}'],
+        meta_keys=[f'img_{domain_a}_path', f'img_{domain_b}_path'])
+]
+
 data = dict(
     train=dict(
         dataroot=dataroot,
         pipeline=train_pipeline,
         domain_a=domain_a,
         domain_b=domain_b),
-    val=dict(dataroot=dataroot, domain_a=domain_a, domain_b=domain_b),
-    test=dict(dataroot=dataroot, domain_a=domain_a, domain_b=domain_b))
+    val=dict(
+        dataroot=dataroot,
+        domain_a=domain_a,
+        domain_b=domain_b,
+        pipeline=test_pipeline),
+    test=dict(
+        dataroot=dataroot,
+        domain_a=domain_a,
+        domain_b=domain_b,
+        pipeline=test_pipeline))
 
 optimizer = dict(
     generators=dict(type='Adam', lr=0.0002, betas=(0.5, 0.999)),
@@ -79,23 +121,41 @@ optimizer = dict(
 
 # learning policy
 lr_config = dict(
-    policy='Linear', by_epoch=False, target_lr=0, start=135000, interval=1350)
+    policy='Linear', by_epoch=False, target_lr=0, start=40000, interval=400)
 
 checkpoint_config = dict(interval=10000, save_optimizer=True, by_epoch=False)
 custom_hooks = [
     dict(
         type='MMGenVisualizationHook',
         output_dir='training_samples',
-        res_name_list=['fake_b'],
+        res_name_list=[f'fake_{domain_a}', f'fake_{domain_b}'],
         interval=5000)
 ]
 
 runner = None
 use_ddp_wrapper = True
-total_iters = 270000
+total_iters = 80000
 workflow = [('train', 1)]
-exp_name = 'cyclegan_horse2zebra_id0'
+exp_name = 'cyclegan_facades_id0'
 work_dir = f'./work_dirs/experiments/{exp_name}'
+num_images = 106
 metrics = dict(
-    FID=dict(type='FID', num_images=140, image_shape=(3, 256, 256)),
-    IS=dict(type='IS', num_images=140, image_shape=(3, 256, 256)))
+    FID=dict(type='FID', num_images=num_images, image_shape=(3, 256, 256)),
+    IS=dict(
+        type='IS',
+        num_images=num_images,
+        image_shape=(3, 256, 256),
+        inception_args=dict(type='pytorch')))
+
+evaluation = dict(
+    type='TranslationEvalHook',
+    target_domain=domain_b,
+    interval=10000,
+    metrics=[
+        dict(type='FID', num_images=num_images, bgr2rgb=True),
+        dict(
+            type='IS',
+            num_images=num_images,
+            inception_args=dict(type='pytorch'))
+    ],
+    best_metric=['fid', 'is'])

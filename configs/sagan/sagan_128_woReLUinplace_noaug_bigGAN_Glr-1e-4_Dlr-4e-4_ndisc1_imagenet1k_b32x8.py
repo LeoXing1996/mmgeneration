@@ -9,7 +9,7 @@
 # 6. no data augmentation
 
 _base_ = [
-    '../_base_/models/sagan_128x128.py',
+    '../_base_/models/sagan/sagan_128x128.py',
     '../_base_/datasets/imagenet_noaug_128.py', '../_base_/default_runtime.py'
 ]
 
@@ -60,7 +60,7 @@ evaluation = dict(
         dict(type='IS', num_images=50000)
     ],
     best_metric=['fid', 'is'],
-    sample_kwargs=dict(sample_model='orig'))
+    sample_kwargs=dict(sample_model='ema'))
 
 total_iters = 1000000 * n_disc
 # use ddp wrapper for faster training
