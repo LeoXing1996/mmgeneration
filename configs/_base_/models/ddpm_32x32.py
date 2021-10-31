@@ -12,7 +12,7 @@ model = dict(
         use_scale_shift_norm=True,
         dropout=0,
         num_heads=4,
-        rescale_timesteps=True,
+        use_rescale_timesteps=True,
         output_cfg=dict(mean='eps', var='learned_range')),
     timestep_sampler=dict(type='UniformTimeStepSampler'),
     ddpm_loss=[

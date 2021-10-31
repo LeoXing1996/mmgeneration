@@ -62,8 +62,8 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                 num_classes=num_classes, num_timesteps=num_timesteps))
 
         # get output-related configs from denoising
-        self.denoising_var = self.denoising.var_cfg
-        self.denoising_mean = self.denoising.mean_cfg
+        self.denoising_var = self.denoising.var_mode
+        self.denoising_mean = self.denoising.mean_mode
         # output_channels in denoising may be double, therefore we
         # get number of channels from config
         image_channels = self._denoising_cfg.get('in_channels')
@@ -159,7 +159,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
 
         Args:
             losses (dict): Raw output of the network, which usually contain
-                losses and other necessary infomation.
+                losses and other necessary information.
 
         Returns:
             tuple[Tensor, dict]: (loss, log_vars), loss is the loss tensor \

@@ -33,10 +33,11 @@ runner = dict(
 # 1. we eval FID with official checkpoint --> therefore bgr2rgb=False
 # 2. we only eval 4000 images to save time.
 
+inception_pkl = './work_dirs/inception_pkl/cifar10.pkl'
 metrics = dict(
     fid50k=dict(
         type='FID',
-        num_images=40,
+        num_images=50000,
         bgr2rgb=False,
         inception_pkl=None,
         inception_args=dict(type='StyleGAN')))
