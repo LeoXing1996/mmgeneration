@@ -1,5 +1,7 @@
 _base_ = [
-    '../_base_/models/ddpm_32x32.py', '../_base_/datasets/cifar10_noaug.py',
+    '../_base_/models/ddpm_32x32.py',
+    # '../_base_/datasets/cifar10_noaug.py',
+    '../_base_/datasets/cifar10_rgb.py',  # use rgb pipeline
     '../_base_/default_runtime.py'
 ]
 
@@ -13,19 +15,12 @@ custom_hooks = [
         output_dir='training_samples',
         res_name_list=['real_imgs', 'x_0_pred', 'x_t', 'x_t_1'],
         padding=1,
-        interval=1000),
-    dict(
-        type='ExponentialMovingAverageHook',
-        module_keys=('denoising_ema'),
-        interval=10000,
-        start_iter=0,
-        interp_cfg=dict(momentum=0.9999),
-        priority='VERY_HIGH')
+        interval=1000)
 ]
 
 evaluation = None
 
-total_iters = 1000000
+total_iters = 20
 # use ddp wrapper for faster training
 use_ddp_wrapper = True
 find_unused_parameters = False

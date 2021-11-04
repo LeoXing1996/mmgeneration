@@ -6,6 +6,7 @@ from copy import deepcopy
 
 import mmcv
 import torch
+import torch.distributed as dist
 from mmcv.runner import get_dist_info
 from prettytable import PrettyTable
 from torchvision.utils import save_image
@@ -34,7 +35,7 @@ def make_metrics_table(train_cfg, ckpt, eval_info, metrics):
     return table.get_string()
 
 
-def make_vanilla_dataloader(img_path, batch_size):
+def make_vanilla_dataloader(img_path, batch_size, dist=False):
     pipeline = [
         dict(type='LoadImageFromFile', key='real_img', io_backend='disk'),
         dict(
@@ -56,7 +57,7 @@ def make_vanilla_dataloader(img_path, batch_size):
         dataset,
         samples_per_gpu=batch_size,
         workers_per_gpu=4,
-        dist=False,
+        dist=dist,
         shuffle=True)
     return dataloader
 
@@ -70,10 +71,12 @@ def single_gpu_evaluation(model,
                           batch_size,
                           samples_path=None,
                           **kwargs):
-    """Evaluate model with a single gpu.
+    """Evaluate model with a offline mode.
 
-    This method evaluate model with a single gpu and displays eval progress
-     bar.
+    This method first save generated images at local and then load them by
+    dataloader.
+    # This method evaluate model with a single gpu and displays eval progress
+    # bar.
 
     Args:
         model (nn.Module): Model to be tested.
@@ -88,11 +91,13 @@ def single_gpu_evaluation(model,
             evaluation. Default to None.
         kwargs (dict): Other arguments.
     """
-    # eval special and probabilistic metric online only
+    # eval special and recon metric online only
     online_metric_name = ['PPL', 'GaussianKLD']
     for metric in metrics:
         assert metric.name not in online_metric_name, 'Please eval '\
              f'{metric.name} online'
+
+    rank, ws = get_dist_info()
 
     delete_samples_path = False
     if samples_path:
@@ -125,8 +130,9 @@ def single_gpu_evaluation(model,
         # define mmcv progress bar
         pbar = mmcv.ProgressBar(num_needed)
 
-    # if no images, `num_exist` should be zero
-    for begin in range(num_exist, num_needed, batch_size):
+    # if no images, `num_needed` should be zero
+    total_batch_size = batch_size * ws
+    for begin in range(0, num_needed, total_batch_size):
         end = min(begin + batch_size, max_num_images)
         fakes = model(
             None,
@@ -134,7 +140,14 @@ def single_gpu_evaluation(model,
             return_loss=False,
             sample_model=basic_table_info['sample_model'],
             **kwargs)
-        pbar.update(end - begin)
+        global_end = min(begin + total_batch_size, max_num_images)
+        pbar.update(global_end - begin)
+
+        # gather generated images
+        if ws > 1:
+            placeholder = [torch.zeros_like(fakes) for _ in range(ws)]
+            dist.all_gather(placeholder, fakes)
+            fakes = torch.cat(placeholder, dim=0)
 
         # save as three-channel
         if fakes.size(1) == 3:
@@ -146,14 +159,15 @@ def single_gpu_evaluation(model,
                                'channels in the first dimension, '
                                'not %d' % fakes.size(1))
 
-        for i in range(end - begin):
-            images = fakes[i:i + 1]
-            images = ((images + 1) / 2)
-            images = images.clamp_(0, 1)
-            image_name = str(begin + i) + '.png'
-            save_image(images, os.path.join(samples_path, image_name))
+        if rank == 0:
+            for i in range(end - begin):
+                images = fakes[i:i + 1]
+                images = ((images + 1) / 2)
+                images = images.clamp_(0, 1)
+                image_name = str(begin + i) + '.png'
+                save_image(images, os.path.join(samples_path, image_name))
 
-    if num_needed > 0:
+    if num_needed > 0 and rank == 0:
         sys.stdout.write('\n')
 
     # return if only save sampled images
@@ -162,13 +176,17 @@ def single_gpu_evaluation(model,
 
     # empty cache to release GPU memory
     torch.cuda.empty_cache()
-    fake_dataloader = make_vanilla_dataloader(samples_path, batch_size)
+    fake_dataloader = make_vanilla_dataloader(
+        samples_path, batch_size, dist=ws > 1)
     for metric in metrics:
         mmcv.print_log(f'Evaluate with {metric.name} metric.', 'mmgen')
         metric.prepare()
-        # prepare for pbar
-        total_need = metric.num_real_need + metric.num_fake_need
-        pbar = mmcv.ProgressBar(total_need)
+        if rank == 0:
+            # prepare for pbar
+            total_need = (
+                metric.num_real_need + metric.num_fake_need -
+                metric.num_real_feeded - metric.num_fake_feeded)
+            pbar = mmcv.ProgressBar(total_need)
         # feed in real images
         for data in data_loader:
             # key for unconditional GAN
@@ -186,7 +204,8 @@ def single_gpu_evaluation(model,
             if reals.shape[1] == 1:
                 reals = torch.cat([reals] * 3, dim=1)
             num_left = metric.feed(reals, 'reals')
-            pbar.update(reals.shape[0])
+            if rank == 0:
+                pbar.update(reals.shape[0] * ws)
             if num_left <= 0:
                 break
         # feed in fake images
@@ -195,17 +214,22 @@ def single_gpu_evaluation(model,
             if fakes.shape[1] == 1:
                 fakes = torch.cat([fakes] * 3, dim=1)
             num_left = metric.feed(fakes, 'fakes')
-            pbar.update(fakes.shape[0])
+            if rank == 0:
+                pbar.update(fakes.shape[0] * ws)
             if num_left <= 0:
                 break
-        metric.summary()
-        sys.stdout.write('\n')
-    table_str = make_metrics_table(basic_table_info['train_cfg'],
-                                   basic_table_info['ckpt'],
-                                   basic_table_info['sample_model'], metrics)
-    logger.info('\n' + table_str)
-    if delete_samples_path:
-        shutil.rmtree(samples_path)
+        if rank == 0:
+            # only call summary at main device
+            metric.summary()
+            sys.stdout.write('\n')
+    if rank == 0:
+        table_str = make_metrics_table(basic_table_info['train_cfg'],
+                                       basic_table_info['ckpt'],
+                                       basic_table_info['sample_model'],
+                                       metrics)
+        logger.info('\n' + table_str)
+        if delete_samples_path:
+            shutil.rmtree(samples_path)
 
 
 @torch.no_grad()

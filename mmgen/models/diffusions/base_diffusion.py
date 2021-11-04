@@ -242,12 +242,13 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         if ddp_reducer is not None:
             ddp_reducer.prepare_for_backward(_find_tensors(loss))
 
-        # TODO: just for debug --> save parameters
-        weight_before_update = dict()
-        for n, v in self.denoising.state_dict().items():
-            weight_before_update[n] = v.cpu().detach().clone()
+        # TODO: just for debug
+        if self.save_pickle:
+            weight_before_update = dict()
+            for n, v in self.denoising.state_dict().items():
+                weight_before_update[n] = v.cpu().detach().clone()
 
-        self.weight_hist[curr_iter] = weight_before_update
+            self.weight_hist[curr_iter] = weight_before_update
 
         if loss_scaler:
             # add support for fp16
@@ -262,15 +263,16 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
             loss.backward()
 
         # TODO: just for debug
-        grad_after_update = dict()
-        for n, p in self.denoising.named_parameters():
-            grad_after_update[n] = p.grad.cpu().clone()
-        self.grad_hist[curr_iter] = grad_after_update
+        if self.save_pickle:
+            grad_after_update = dict()
+            for n, p in self.denoising.named_parameters():
+                grad_after_update[n] = p.grad.cpu().clone()
+            self.grad_hist[curr_iter] = grad_after_update
 
-        loss_after_forward = dict()
-        for k, v in log_vars.items():
-            loss_after_forward[k] = v
-        self.loss_hist[curr_iter] = loss_after_forward
+            loss_after_forward = dict()
+            for k, v in log_vars.items():
+                loss_after_forward[k] = v
+            self.loss_hist[curr_iter] = loss_after_forward
 
         if loss_scaler:
             loss_scaler.unscale_(optimizer['denoising'])
@@ -289,14 +291,17 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         outputs = dict(
             log_vars=log_vars, num_samples=real_imgs.shape[0], results=results)
 
-        self.input_hist[curr_iter] = deepcopy(data)
-        self.input_hist[curr_iter]['t'] = denoising_dict_['timesteps'].cpu()
-        self.input_hist[curr_iter]['noise'] = denoising_dict_['noise'].cpu()
+        if self.save_pickle:
+            self.input_hist[curr_iter] = deepcopy(data)
+            self.input_hist[curr_iter]['t'] = denoising_dict_['timesteps'].cpu(
+            )
+            self.input_hist[curr_iter]['noise'] = denoising_dict_['noise'].cpu(
+            )
         if hasattr(self, 'iteration'):
             self.iteration += 1
 
         # TODO: just for debug
-        if curr_iter + 1 == 20:
+        if curr_iter + 1 == self.save_pickle_interval and self.save_pickle:
             import pickle
             with open(f'{self.pickle_name}.pkl', 'wb') as file:
                 pickle.dump(
@@ -335,10 +340,11 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         num_batches = real_imgs.shape[0]
 
         # TODO: just for debug --> get a fixed input
-        if 'noise' in data_batch:
-            noise = data_batch.pop('noise')
-        if 't' in data_batch:
-            timesteps = data_batch.pop('t')
+        if self.save_pickle:
+            if 'noise' in data_batch:
+                noise = data_batch.pop('noise')
+            if 't' in data_batch:
+                timesteps = data_batch.pop('t')
 
         if timesteps is None:
             # default to performing the whole reconstruction process

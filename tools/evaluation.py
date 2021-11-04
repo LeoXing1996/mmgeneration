@@ -113,8 +113,8 @@ def main():
         init_dist(args.launcher, **cfg.dist_params)
         rank, world_size = get_dist_info()
         cfg.gpu_ids = range(world_size)
-        assert args.online or world_size == 1, (
-            'We only support online mode for distrbuted evaluation.')
+        # assert args.online or world_size == 1, (
+        #     'We only support online mode for distrbuted evaluation.')
 
     dirname = os.path.dirname(args.checkpoint)
     ckpt = os.path.basename(args.checkpoint)
@@ -175,6 +175,7 @@ def main():
     if len(metrics) == 0:
         basic_table_info['num_samples'] = args.num_samples
         data_loader = None
+        print(basic_table_info)
     else:
         basic_table_info['num_samples'] = -1
         # build the dataloader
@@ -203,15 +204,6 @@ def main():
 
     if not distributed:
         model = MMDataParallel(model, device_ids=[0])
-        # online mode will not save samples
-        if args.online and len(metrics) > 0:
-            single_gpu_online_evaluation(model, data_loader, metrics, logger,
-                                         basic_table_info, args.batch_size,
-                                         **args.sample_cfg)
-        else:
-            single_gpu_evaluation(model, data_loader, metrics, logger,
-                                  basic_table_info, args.batch_size,
-                                  args.samples_path, **args.sample_cfg)
     else:
         find_unused_parameters = cfg.get('find_unused_parameters', False)
         model = MMDistributedDataParallel(
@@ -219,9 +211,16 @@ def main():
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False,
             find_unused_parameters=find_unused_parameters)
+
+    # online mode will not save samples
+    if args.online and len(metrics) > 0:
         single_gpu_online_evaluation(model, data_loader, metrics, logger,
                                      basic_table_info, args.batch_size,
                                      **args.sample_cfg)
+    else:
+        single_gpu_evaluation(model, data_loader, metrics, logger,
+                              basic_table_info, args.batch_size,
+                              args.samples_path, **args.sample_cfg)
 
 
 if __name__ == '__main__':
