@@ -5,8 +5,6 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-data = dict(samples_per_gpu=8)
-
 lr_config = None
 checkpoint_config = dict(interval=10000, by_epoch=False, max_keep_ckpts=20)
 custom_hooks = [
@@ -21,6 +19,8 @@ custom_hooks = [
 evaluation = None
 
 total_iters = 20
+data = dict(samples_per_gpu=8)
+
 # use ddp wrapper for faster training
 use_ddp_wrapper = True
 find_unused_parameters = False
