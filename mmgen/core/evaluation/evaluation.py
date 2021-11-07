@@ -124,7 +124,7 @@ def single_gpu_evaluation(model,
         max_num_images = max(metric.num_images for metric in metrics)
     num_needed = max(max_num_images - num_exist, 0)
 
-    if num_needed > 0:
+    if num_needed > 0 and rank == 0:
         mmcv.print_log(f'Sample {num_needed} fake images for evaluation',
                        'mmgen')
         # define mmcv progress bar
@@ -160,7 +160,7 @@ def single_gpu_evaluation(model,
                                'not %d' % fakes.size(1))
 
         if rank == 0:
-            for i in range(end - begin):
+            for i in range(global_end - begin):
                 images = fakes[i:i + 1]
                 images = ((images + 1) / 2)
                 images = images.clamp_(0, 1)
