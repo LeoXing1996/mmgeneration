@@ -50,6 +50,6 @@ metrics = dict(
     fid50k=dict(
         type='FID',
         num_images=50000,
-        bgr2rgb=False,
+        bgr2rgb=True,
         inception_pkl=None,
         inception_args=dict(type='StyleGAN')))
