@@ -141,7 +141,8 @@ def single_gpu_evaluation(model,
             sample_model=basic_table_info['sample_model'],
             **kwargs)
         global_end = min(begin + total_batch_size, max_num_images)
-        pbar.update(global_end - begin)
+        if rank == 0:
+            pbar.update(global_end - begin)
 
         # gather generated images
         if ws > 1:
