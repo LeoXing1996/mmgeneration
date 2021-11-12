@@ -39,5 +39,5 @@ metrics = dict(
         type='FID',
         num_images=50000,
         bgr2rgb=False,
-        inception_pkl=None,
+        inception_pkl=inception_pkl,
         inception_args=dict(type='StyleGAN')))

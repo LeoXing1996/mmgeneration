@@ -136,6 +136,8 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
 
         # whether to use exponential moving average for testing
         self.use_ema = self.test_cfg.get('use_ema', False)
+        if self.use_ema:
+            self.denoising_ema = deepcopy(self.denoising)
         # TODO: finish ema part --> what should we do here?
 
     def _get_loss(self, outputs_dict):
