@@ -374,7 +374,8 @@ class DenoisingUnet(nn.Module):
         if return_noise:
             output_dict['x_t'] = x_t
             output_dict['t_rescaled'] = t
-            output_dict['label'] = label
+            if self.num_classes > 0:
+                output_dict['label'] = label
 
         return output_dict
 
