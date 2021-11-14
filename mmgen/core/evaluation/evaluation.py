@@ -75,8 +75,6 @@ def single_gpu_evaluation(model,
 
     This method first save generated images at local and then load them by
     dataloader.
-    # This method evaluate model with a single gpu and displays eval progress
-    # bar.
 
     Args:
         model (nn.Module): Model to be tested.

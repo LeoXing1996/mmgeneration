@@ -22,12 +22,12 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         denoising (dict): Config for denoising model.
         ddpm_loss (dict): Config for DDPM.
         betas_cfg (dict): Config for betas in diffusion process.
-        num_timesteps (int, optional): Number of timesteps of the diffusion
+        num_timesteps (int, optional): The number of timesteps of the diffusion
             process. Defaults to 1000.
         num_classes (int | None, optional): The number of conditional classes.
             Defaults to None.
         sample_method (string, optional): Sample method for the denoising
-            process. Defaults to 'DDPM'.
+            process. Support 'DDPM' and 'DDIM'. Defaults to 'DDPM'.
         timesteps_sampler (string, optional): How to sample timesteps in
             training process. Defaults to `UniformTimeStepSampler`.
         train_cfg (dict | None, optional): Config for training schedule.
@@ -51,7 +51,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                  save_pickle_interval=10):
         super().__init__()
         self.fp16_enable = False
-        # build denoising in this function
+        # build denoising module in this function
         self.num_classes = num_classes
         self.num_timesteps = num_timesteps
         self.sample_method = sample_method
@@ -62,11 +62,11 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                 num_classes=num_classes, num_timesteps=num_timesteps))
 
         # get output-related configs from denoising
-        self.denoising_var = self.denoising.var_mode
-        self.denoising_mean = self.denoising.mean_mode
+        self.denoising_var_mode = self.denoising.var_mode
+        self.denoising_mean_mode = self.denoising.mean_mode
         # output_channels in denoising may be double, therefore we
         # get number of channels from config
-        image_channels = self._denoising_cfg.get('in_channels')
+        image_channels = self._denoising_cfg['in_channels']
         # image_size should be the attribute of denoising network
         image_size = self.denoising.image_size
 
@@ -211,8 +211,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
 
 
         Args:
-            optimizer (dict): Dict contains optimizer for generator and
-                discriminator.
+            optimizer (dict): Dict contains optimizer for denoising network.
             running_status (dict | None, optional): Contains necessary basic
                 information for training, e.g., iteration number. Defaults to
                 None.
@@ -739,12 +738,12 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         """
         tar_shape = x_t.shape
         # prepare for var and logvar
-        if self.denoising_var.upper() == 'LEARNED':
+        if self.denoising_var_mode.upper() == 'LEARNED':
             # TODO: maybe change to LEARNED_LOG_VAR
             logvar_pred = denoising_output['logvar']
             varpred = torch.exp(logvar_pred)
 
-        elif self.denoising_var.upper() == 'LEARNED_RANGE':
+        elif self.denoising_var_mode.upper() == 'LEARNED_RANGE':
             # TODO: maybe change to LEARNED_FACTOR ?
             # import ipdb
             # ipdb.set_trace()
@@ -757,20 +756,20 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
                 1 - var_factor) * lower_bound_logvar
             varpred = torch.exp(logvar_pred)
 
-        elif self.denoising_var.upper() == 'FIXED_LARGE':
+        elif self.denoising_var_mode.upper() == 'FIXED_LARGE':
             # use betas as var
             varpred = var_to_tensor(
                 np.append(self.tilde_betas_t[1], self.betas), t, tar_shape)
             logvar_pred = torch.log(varpred)
 
-        elif self.denoising_var.upper() == 'FIXED_SMALL':
+        elif self.denoising_var_mode.upper() == 'FIXED_SMALL':
             # use posterior (tilde_betas)  as var
             varpred = var_to_tensor(self.tilde_betas_t, t, tar_shape)
             logvar_pred = var_to_tensor(self.log_tilde_betas_t_clipped, t,
                                         tar_shape)
         else:
             raise AttributeError('Unknown denoising var output type '
-                                 f'[{self.denoising_var}].')
+                                 f'[{self.denoising_var_mode}].')
 
         def process_x_0(x):
             if denoised_fn is not None and callable(denoised_fn):
@@ -778,7 +777,7 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
             return x.clamp(-1, 1) if clip_denoised else x
 
         # prepare for mean and x_0
-        if self.denoising_mean.upper() == 'EPS':
+        if self.denoising_mean_mode.upper() == 'EPS':
             eps_pred = denoising_output['eps_t_pred']
             # We can get x_{t-1} with eps in two following approaches:
             # 1. eps --(Eq 15)--> \hat{x_0} --(Eq 7)--> \tilde_mu --> x_{t-1}
@@ -797,18 +796,18 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
             x_0_pred = process_x_0(self.pred_x_0_from_eps(eps_pred, x_t, t))
             mean_pred = self.q_posterior_mean_variance(
                 x_0_pred, x_t, t, var=False)
-        elif self.denoising_mean.upper() == 'START_X':
+        elif self.denoising_mean_mode.upper() == 'START_X':
             x_0_pred = process_x_0(denoising_output['x_0_pred'])
             mean_pred = self.q_posterior_mean_variance(
                 x_0_pred, x_t, t, var=False)
-        elif self.denoising_mean.upper() == 'PREVIOUS_X':
+        elif self.denoising_mean_mode.upper() == 'PREVIOUS_X':
             # TODO: maybe we should call this PREVIOUS_X_MEAN or MU_THETA
             # because this actually predict \mu_{\theta}
             mean_pred = denoising_output['x_tm1_pred']
             x_0_pred = process_x_0(self.pred_x_0_from_x_tm1(mean_pred, x_t, t))
         else:
             raise AttributeError('Unknown denoising mean output type '
-                                 f'[{self.denoising_mean}].')
+                                 f'[{self.denoising_mean_mode}].')
 
         return dict(
             var_pred=varpred,
