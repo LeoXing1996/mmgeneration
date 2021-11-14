@@ -138,8 +138,8 @@ def main():
     meta['seed'] = args.seed
     meta['exp_name'] = osp.basename(args.config)
 
-    cfg.model['pickle_name'] = args.pickle_name
-    cfg.model['save_pickle'] = args.save_pickle
+    # cfg.model['pickle_name'] = args.pickle_name
+    # cfg.model['save_pickle'] = args.save_pickle
     model = build_model(
         cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg)
 
