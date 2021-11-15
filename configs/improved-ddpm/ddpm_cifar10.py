@@ -21,6 +21,8 @@ custom_hooks = [
         priority='VERY_HIGH')
 ]
 
+train_cfg = dict(use_ema=True)
+
 evaluation = None
 
 total_iters = 1000000
