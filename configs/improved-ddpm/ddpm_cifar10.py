@@ -15,7 +15,7 @@ custom_hooks = [
     dict(
         type='ExponentialMovingAverageHook',
         module_keys=('denoising_ema'),
-        interval=10000,
+        interval=1,
         start_iter=0,
         interp_cfg=dict(momentum=0.9999),
         priority='VERY_HIGH')

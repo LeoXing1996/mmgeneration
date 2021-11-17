@@ -15,7 +15,7 @@ custom_hooks = [
     dict(
         type='ExponentialMovingAverageHook',
         module_keys=('denoising_ema'),
-        interval=10000,
+        interval=1,
         start_iter=0,
         interp_cfg=dict(momentum=0.9999),
         priority='VERY_HIGH')
@@ -51,5 +51,5 @@ metrics = dict(
         type='FID',
         num_images=50000,
         bgr2rgb=True,
-        inception_pkl=None,
+        inception_pkl=inception_pkl,
         inception_args=dict(type='StyleGAN')))
