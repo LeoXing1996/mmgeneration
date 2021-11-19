@@ -1,5 +1,6 @@
 _base_ = [
-    '../_base_/models/ddpm_32x32.py', '../_base_/datasets/cifar10_noaug.py',
+    '../_base_/models/ddpm_64x64.py',
+    '../_base_/datasets/imagenet_noaug_64_naive.py',
     '../_base_/default_runtime.py'
 ]
 
@@ -23,7 +24,7 @@ custom_hooks = [
 
 evaluation = None
 
-total_iters = 1000000
+total_iters = 1500000
 data = dict(samples_per_gpu=8)
 
 # use ddp wrapper for faster training
@@ -38,7 +39,7 @@ runner = dict(
 # In Debug,
 # 1. we eval FID with official checkpoint --> therefore bgr2rgb=False
 # 2. we only eval 4000 images to save time.
-inception_pkl = './work_dirs/inception_pkl/cifar10.pkl'
+inception_pkl = './work_dirs/inception_pkl/imagenet.pkl'
 metrics = dict(
     fid50k=dict(
         type='FID',

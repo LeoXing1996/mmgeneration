@@ -4,7 +4,7 @@ model = dict(
     betas_cfg=dict(type='cosine'),
     denoising=dict(
         type='DenoisingUnet',
-        image_size=32,
+        image_size=64,
         in_channels=3,
         base_channels=128,
         resblocks_per_downsample=3,
