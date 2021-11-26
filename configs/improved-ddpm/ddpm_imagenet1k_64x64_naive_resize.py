@@ -25,7 +25,7 @@ custom_hooks = [
 evaluation = None
 
 total_iters = 1500000
-data = dict(samples_per_gpu=8)
+data = dict(samples_per_gpu=16)
 
 # use ddp wrapper for faster training
 use_ddp_wrapper = True

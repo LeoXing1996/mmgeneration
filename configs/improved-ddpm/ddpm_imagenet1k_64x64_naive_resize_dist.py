@@ -19,7 +19,8 @@ custom_hooks = [
         interval=1,
         start_iter=0,
         interp_cfg=dict(momentum=0.9999),
-        priority='VERY_HIGH')
+        priority='VERY_HIGH'),
+    dict(type='PetrelUploadHook', ceph_path='s3://mmgen-dev/ddpm-imagenet64')
 ]
 
 evaluation = None
@@ -32,7 +33,7 @@ log_config = dict(
     ])
 
 total_iters = 1500000
-data = dict(samples_per_gpu=8)
+data = dict(samples_per_gpu=16)
 
 # use ddp wrapper for faster training
 use_ddp_wrapper = True
