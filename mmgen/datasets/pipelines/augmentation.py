@@ -203,7 +203,96 @@ class Resize:
         repr_str += (
             f'(keys={self.keys}, scale={self.scale}, '
             f'keep_ratio={self.keep_ratio}, size_factor={self.size_factor}, '
-            f'max_size={self.max_size},interpolation={self.interpolation})')
+            f'max_size={self.max_size}, interpolation={self.interpolation})')
+        return repr_str
+
+
+@CLS_PIPELINE.register_module()
+@PIPELINES.register_module()
+class MultiScaleResize:
+    """This method MUST use follow by CROP OPERATION.
+
+    Otherwise, the image size would be wrong.
+    """
+
+    def __init__(self,
+                 keys,
+                 scale=None,
+                 interpolation='box',
+                 last_interpolation='bicubic',
+                 backend='pillow'):
+        assert keys, 'Keys should not be empty.'
+        self.keys = keys
+        self.scale = scale
+        self.interpolation = interpolation
+        self.last_interpolation = last_interpolation
+        self.backend = backend
+
+    def _resize(self, img):
+        while min(*img.shape[:2]) >= 2 * self.scale:
+            img = mmcv.imresize(
+                img, (x // 2 for x in img.shape[:2]),
+                interpolation=self.interpolation,
+                backend=self.backend)
+            print(img.shape)
+        scale = self.scale / min(*img.shape[:2])
+        img = mmcv.imresize(
+            img, (round(x * scale) for x in img.shape[:2]),
+            interpolation=self.last_interpolation,
+            backend=self.backend)
+        print(img.shape)
+        return img
+
+    def __call__(self, results):
+
+        for key in self.keys:
+            results[key] = self._resize(results[key])
+            if len(results[key].shape) == 2:
+                results[key] = np.expand_dims(results[key], axis=2)
+
+        results['scale'] = self.scale
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += (f'(keys={self.keys}, scale={self.scale}, '
+                     f'interpolation={self.interpolation}, '
+                     f'last_interpolation={self.last_interpolation})')
+        return repr_str
+
+
+class DDPMResize:
+
+    def __init__(self, keys, resolution, to_rgb=False):
+        self.keys = keys
+        self.resolution = resolution
+        self.to_rgb = to_rgb
+
+    def _resize(self, img):
+        from PIL import Image
+        pil_image = Image.fromarray(img)
+
+        while min(*pil_image.size) >= 2 * self.resolution:
+            pil_image = pil_image.resize(
+                tuple(x // 2 for x in pil_image.size), resample=Image.BOX)
+            print(pil_image.size)
+
+        scale = self.resolution / min(*pil_image.size)
+        pil_image = pil_image.resize(
+            tuple(round(x * scale) for x in pil_image.size),
+            resample=Image.BICUBIC)
+        image = np.array(pil_image)
+        # if self.to_rgb:
+        #     image = image[..., (2, 1, 0)]
+        return image
+
+    def __call__(self, results):
+        for key in self.keys:
+            results[key] = self._resize(results[key])
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
         return repr_str
 
 
