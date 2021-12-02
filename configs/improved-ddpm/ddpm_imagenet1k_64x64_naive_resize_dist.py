@@ -12,7 +12,7 @@ custom_hooks = [
         output_dir='training_samples',
         res_name_list=['real_imgs', 'x_0_pred', 'x_t', 'x_t_1'],
         padding=1,
-        interval=1000),
+        interval=10000),
     dict(
         type='ExponentialMovingAverageHook',
         module_keys=('denoising_ema'),

@@ -5,7 +5,6 @@ from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from mmcv.cnn import ACTIVATION_LAYERS
 from mmcv.cnn.bricks import build_activation_layer, build_norm_layer
 from mmcv.cnn.utils import constant_init
@@ -24,6 +23,8 @@ class EmbedSequential(nn.Sequential):
     def forward(self, x, y):
         for layer in self:
             if isinstance(layer, DenoisingResBlock):
+                x = layer(x, y)
+            elif isinstance(layer, DDPM_ResBlock):
                 x = layer(x, y)
             else:
                 x = layer(x)
@@ -52,7 +53,8 @@ class SiLU(nn.Module):
             torch.Tensor: Tensor after activation.
         """
 
-        return F.silu(x, inplace=self.inplace)
+        return x * torch.sigmoid(x)
+        # return F.silu(x, inplace=self.inplace)
 
 
 @MODULES.register_module()
@@ -304,7 +306,7 @@ class NormWithEmbedding(nn.Module):
         act_cfg (dict, optional): Config for the activation layer. Defaults
             to `dict(type='SiLU', inplace=False)`.
         use_scale_shift (bool): If True, the output of Embedding layer will be
-            splitted to 'scale' and 'shift' and map the output of
+            split to 'scale' and 'shift' and map the output of
             normalization layer to ``out * (1 + scale) + shift``. Otherwise,
             the output of Embedding layer will be added with the input before
             normalization operation. Defaults to True.
@@ -335,7 +337,10 @@ class NormWithEmbedding(nn.Module):
         Returns:
             torch.Tensor : Output feature map tensor.
         """
-        embedding = self.embedding_layer(y)[:, :, None, None]
+        # embedding = self.embedding_layer(y)[:, :, None, None]
+        embedding = self.embedding_layer(y)
+        while len(embedding.shape) < len(x.shape):
+            embedding = embedding[..., None]
         if self.use_scale_shift:
             scale, shift = torch.chunk(embedding, 2, dim=1)
             x = self.norm(x)
@@ -343,6 +348,84 @@ class NormWithEmbedding(nn.Module):
         else:
             x = self.norm(x + embedding)
         return x
+
+
+@MODULES.register_module()
+class DDPM_ResBlock(nn.Module):
+
+    def __init__(self,
+                 in_channels,
+                 embedding_channels,
+                 use_scale_shift_norm,
+                 dropout,
+                 out_channels=None,
+                 norm_cfg=dict(type='GN', num_groups=32),
+                 act_cfg=dict(type='SiLU', inplace=False),
+                 shortcut_kernel_size=1):
+        super().__init__()
+
+        self.channels = in_channels
+        self.emb_channels = embedding_channels
+        self.dropout = dropout
+        self.out_channels = out_channels or in_channels
+        # self.use_conv = use_conv
+        self.use_scale_shift_norm = use_scale_shift_norm
+
+        self.norm_cfg = deepcopy(norm_cfg)
+        self.act_cfg = deepcopy(act_cfg)
+
+        _, norm_1 = build_norm_layer(self.norm_cfg, in_channels)
+
+        self.in_layers = nn.Sequential(
+            norm_1,
+            # nn.GroupNorm(32, in_channels),
+            build_activation_layer(self.act_cfg),
+            # SiLU(),
+            nn.Conv2d(self.channels, self.out_channels, 3, padding=1),
+        )
+        self.emb_layers = nn.Sequential(
+            SiLU(),
+            nn.Linear(
+                embedding_channels,
+                2 * self.out_channels
+                if use_scale_shift_norm else self.out_channels,
+            ),
+        )
+
+        _, norm_2 = build_norm_layer(self.norm_cfg, self.out_channels)
+        self.out_layers = nn.Sequential(
+            norm_2,
+            # nn.GroupNorm(32, self.out_channels),
+            build_activation_layer(self.act_cfg),
+            # SiLU(),
+            nn.Dropout(p=dropout),
+            nn.Conv2d(self.out_channels, self.out_channels, 3, padding=1),
+        )
+
+        if self.out_channels == in_channels:
+            self.skip_connection = nn.Identity()
+        else:
+            shortcut_padding = 1 if shortcut_kernel_size == 3 else 0
+            self.skip_connection = nn.Conv2d(
+                in_channels,
+                out_channels,
+                shortcut_kernel_size,
+                padding=shortcut_padding)
+
+    def forward(self, x, emb):
+        h = self.in_layers(x)
+        emb_out = self.emb_layers(emb).type(h.dtype)
+        while len(emb_out.shape) < len(h.shape):
+            emb_out = emb_out[..., None]
+        if self.use_scale_shift_norm:
+            out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
+            scale, shift = torch.chunk(emb_out, 2, dim=1)
+            h = out_norm(h) * (1 + scale) + shift
+            h = out_rest(h)
+        else:
+            h = h + emb_out
+            h = self.out_layers(h)
+        return self.skip_connection(x) + h
 
 
 @MODULES.register_module()
@@ -393,6 +476,7 @@ class DenoisingUpsample(nn.Module):
         if with_conv:
             self.with_conv = True
             self.conv = nn.Conv2d(in_channels, in_channels, 3, 1, 1)
+        self.upsample = MyUpsample2()
 
     def forward(self, x):
         """Forward function for upsampling operation.
@@ -402,7 +486,17 @@ class DenoisingUpsample(nn.Module):
         Returns:
             torch.Tensor: Feature map after upsampling.
         """
-        x = F.interpolate(x, scale_factor=2, mode='nearest')
+        # x = F.interpolate(x, scale_factor=2, mode='nearest')
+        x = self.upsample(x)
         if self.with_conv:
             x = self.conv(x)
         return x
+
+
+class MyUpsample2(nn.Module):
+
+    def forward(self, x):
+        return x[:, :, :, None, :, None].expand(-1, -1, -1, 2, -1, 2).reshape(
+            x.size(0), x.size(1),
+            x.size(2) * 2,
+            x.size(3) * 2)

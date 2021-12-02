@@ -30,8 +30,8 @@ log_config = dict(
         dict(type='PaviLoggerHook', init_kwargs=dict(project='Improve-DDPM'))
     ])
 
-total_iters = 1000000
-data = dict(samples_per_gpu=8)
+total_iters = 500000
+data = dict(samples_per_gpu=16)
 
 # use ddp wrapper for faster training
 use_ddp_wrapper = True
@@ -42,9 +42,6 @@ runner = dict(
     is_dynamic_ddp=False,  # Note that this flag should be False.
     pass_training_status=True)
 
-# In Debug,
-# 1. we eval FID with official checkpoint --> therefore bgr2rgb=False
-# 2. we only eval 4000 images to save time.
 inception_pkl = './work_dirs/inception_pkl/cifar10.pkl'
 metrics = dict(
     fid50k=dict(

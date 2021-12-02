@@ -94,8 +94,9 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
 
         # build losses
         if ddpm_loss is not None:
-            self.ddpm_loss = build_module(
-                ddpm_loss, default_args=dict(sampler=self.sampler))
+            # self.ddpm_loss = build_module(
+            #     ddpm_loss, default_args=dict(sampler=self.sampler))
+            self.ddpm_loss = build_module(ddpm_loss)
             if not isinstance(self.ddpm_loss, nn.ModuleList):
                 self.ddpm_loss = nn.ModuleList([self.ddpm_loss])
         else:
@@ -137,6 +138,12 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         # TODO: finish ema part --> what should we do here?
 
     def _get_loss(self, outputs_dict):
+        # here we direct sum eps_t to debug the network
+        # import ipdb
+        # ipdb.set_trace()
+        # loss = outputs_dict['eps_t_pred'].sum()
+        # log_vars = dict(loss=loss.item())
+
         losses_dict = {}
 
         # forward losses
@@ -224,8 +231,17 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         real_imgs = data[self.real_img_key]
         # denoising training
         optimizer['denoising'].zero_grad()
-        denoising_dict_ = self.reconstruction_step(
-            data, timesteps=self.sampler, return_noise=True)
+        # TODO: just for debug
+        debug_mode = 'noise' in data and 't' in data
+        if debug_mode:
+            noise = data.pop('noise')
+            t = data['t']
+            denoising_dict_ = self.reconstruction_step(
+                data, noise=noise, timesteps=t, return_noise=True)
+        else:
+            denoising_dict_ = self.reconstruction_step(
+                data, timesteps=self.sampler, return_noise=True)
+
         denoising_dict_['iteration'] = curr_iter
         denoising_dict_['real_imgs'] = real_imgs
         denoising_dict_['loss_scaler'] = loss_scaler
@@ -267,6 +283,14 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         outputs = dict(
             log_vars=log_vars, num_samples=real_imgs.shape[0], results=results)
 
+        if debug_mode:
+            outputs['timesteps'] = denoising_dict_['timesteps']
+            outputs['noise'] = denoising_dict_['noise_batches']
+            sqsum = 0.0
+            for p in self.denoising.parameters():
+                sqsum += (p.grad**2).sum().item()
+            outputs['grad_norm'] = np.sqrt(sqsum)
+
         if hasattr(self, 'iteration'):
             self.iteration += 1
 
@@ -299,6 +323,8 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
             timestep (int | list | torch.Tensor | callable | None): Target
                 timestep to perform reconstruction.
         """
+        # import ipdb
+        # ipdb.set_trace()
         # 0. prepare for timestep, noise and label
         device = get_module_device(self)
         real_imgs = data_batch[self.real_img_key]
@@ -546,15 +572,15 @@ class BasicGaussianDiffusion(nn.Module, metaclass=ABCMeta):
         self.sqrt_recipm1_alphas_bar = np.sqrt(1.0 / self.alphas_bar - 1)
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
-        self.tilde_betas_t = self.betas * (1 - self.alphas_bar_prev) / (
-            1 - self.alphas_bar)
+        self.tilde_betas_t = self.betas * (1.0 - self.alphas_bar_prev) / (
+            1.0 - self.alphas_bar)
         # clip log var for tilde_betas_0 = 0
         self.log_tilde_betas_t_clipped = np.log(
             np.append(self.tilde_betas_t[1], self.tilde_betas_t[1:]))
         self.tilde_mu_t_coef1 = np.sqrt(
-            self.alphas_bar_prev) / (1 - self.alphas_bar) * self.betas
-        self.tilde_mu_t_coef2 = np.sqrt(
-            self.alphas) * (1 - self.alphas_bar_prev) / (1 - self.alphas_bar)
+            self.alphas_bar_prev) / (1.0 - self.alphas_bar) * self.betas
+        self.tilde_mu_t_coef2 = np.sqrt(self.alphas) * (
+            1.0 - self.alphas_bar_prev) / (1.0 - self.alphas_bar)
 
     def get_betas(self):
         """Get betas by defined schedule method in diffusion process."""

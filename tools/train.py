@@ -55,9 +55,15 @@ def parse_args():
         choices=['none', 'pytorch', 'slurm', 'mpi'],
         default='none',
         help='job launcher')
-    parser.add_argument('--save-pickle', action='store_true')
-    parser.add_argument('--save-pickle-interval', type=int, default=10)
-    parser.add_argument('--pickle-name', type=str, default='w_and_g')
+    # parser.add_argument('--save-pickle', action='store_true')
+    # parser.add_argument('--save-pickle-interval', type=int, default=10)
+
+    parser.add_argument('--debug-iters', type=int, default=-1)
+    parser.add_argument('--debug-pickle-path', type=str)
+    parser.add_argument('--pickle-to-load', type=str)
+    parser.add_argument(
+        '--only-last-weight', action='store_true', default=False)
+
     parser.add_argument('--local_rank', type=int, default=0)
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
@@ -140,6 +146,12 @@ def main():
 
     # cfg.model['pickle_name'] = args.pickle_name
     # cfg.model['save_pickle'] = args.save_pickle
+    debug_kwargs = dict(
+        debug_iters=args.debug_iters,
+        debug_pickle_path=args.debug_pickle_path,
+        pickle_to_load=args.pickle_to_load,
+        only_last_weight=args.only_last_weight)
+
     model = build_model(
         cfg.model, train_cfg=cfg.train_cfg, test_cfg=cfg.test_cfg)
 
@@ -161,7 +173,8 @@ def main():
         distributed=distributed,
         validate=(not args.no_validate),
         timestamp=timestamp,
-        meta=meta)
+        meta=meta,
+        debug_kwargs=debug_kwargs)
 
 
 if __name__ == '__main__':

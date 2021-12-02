@@ -11,6 +11,7 @@ import torch
 import torch.distributed as dist
 from mmcv.parallel import collate, is_module_wrapper
 from mmcv.runner import HOOKS, RUNNERS, IterBasedRunner, get_host_info
+from tools.ddpm_cvt import convert_state_dict_with_offRes
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 
@@ -139,6 +140,10 @@ class DynamicIterBasedRunner(IterBasedRunner):
                  pass_training_status=False,
                  fp16_loss_scaler=None,
                  use_apex_amp=False,
+                 debug_iters=-1,
+                 debug_pickle_path=None,
+                 pickle_to_load=None,
+                 only_last_weight=False,
                  **kwargs):
         super().__init__(*args, **kwargs)
         if is_module_wrapper(self.model):
@@ -170,13 +175,22 @@ class DynamicIterBasedRunner(IterBasedRunner):
         self.use_apex_amp = use_apex_amp
 
         # TODO: just for debug
-        # self.save_pickle = _model.save_pickle
-        # if self.save_pickle:
-        #     with open(
-        #             '/space0/home/xingzn/code/improved-diffusion/work_dirs/'
-        #             'CIFAR10_hybird/w_and_g.pkl', 'rb') as file:
-        #         import pickle
-        #         self.inp = pickle.load(file)['inp']
+        self.debug_iters = debug_iters
+        self.debug_pickle_path = debug_pickle_path
+        self.only_last_weight = only_last_weight
+        if self.debug_iters > 0:
+            with open(pickle_to_load, 'rb') as file:
+                import pickle
+                # self.inp = pickle.load(file)['inp']
+                self.pickle_to_load = pickle.load(file)
+            self.debug_dict = dict(
+                batch=[],
+                losses=[],
+                weight=[],
+                t=[],
+                noise=[],
+                ema_weight=[],
+                grad_norm=[])
 
     def call_hook(self, fn_name):
         """Call all hooks.
@@ -194,6 +208,7 @@ class DynamicIterBasedRunner(IterBasedRunner):
             _model = self.model.module
         else:
             _model = self.model
+
         self.model.train()
         self.mode = 'train'
         # check if self.optimizer from model and track it
@@ -207,10 +222,10 @@ class DynamicIterBasedRunner(IterBasedRunner):
         self.call_hook('before_train_iter')
 
         # TODO: here we manually monk the input data for debug
-        # if self.save_pickle:
-        #     data_batch['img'] = self.inp[self.iter]['x_start']
-        #     data_batch['t'] = self.inp[self.iter]['t']
-        #     data_batch['noise'] = self.inp[self.iter]['noise']
+        if self.debug_iters > 0:
+            data_batch['img'] = self.pickle_to_load['batch'][self.iter]
+            data_batch['t'] = self.pickle_to_load['t'][self.iter]
+            data_batch['noise'] = self.pickle_to_load['noise'][self.iter]
 
         # prepare input args for train_step
         # running status
@@ -252,6 +267,39 @@ class DynamicIterBasedRunner(IterBasedRunner):
         self._inner_iter += 1
         self._iter += 1
 
+        if self.debug_iters > 0:
+            # import ipdb
+            # ipdb.set_trace()
+            real_imgs = outputs['results']['real_imgs']
+            losses = outputs['log_vars']
+
+            self.debug_dict['batch'].append(real_imgs)
+            self.debug_dict['losses'].append(losses)
+            self.debug_dict['t'].append(outputs['timesteps'])
+            self.debug_dict['noise'].append(outputs['noise'])
+            self.debug_dict['grad_norm'].append(outputs['grad_norm'])
+
+            if not self.only_last_weight or self.debug_iters == self._iter:
+                weight = {
+                    k: v.cpu()
+                    for k, v in _model.state_dict().items() if 'ema' not in k
+                }
+                ema_weight = {
+                    k: v.cpu()
+                    for k, v in _model.state_dict().items() if 'ema' in k
+                }
+
+                self.debug_dict['weight'].append(weight)
+                self.debug_dict['ema_weight'].append(ema_weight)
+
+        # TODO: just for debug
+        if self.debug_iters == self._iter:
+            with open(self.debug_pickle_path, 'wb') as file:
+                import pickle
+                pickle.dump(self.debug_dict, file)
+
+            exit(0)
+
     def run(self, data_loaders, workflow, max_iters=None, **kwargs):
         """Start running.
 
@@ -284,6 +332,38 @@ class DynamicIterBasedRunner(IterBasedRunner):
         iter_loaders = [IterLoader(x, self) for x in data_loaders]
 
         self.call_hook('before_epoch')
+
+        # TODO: debug code
+        if is_module_wrapper(self.model):
+            _model = self.model.module
+        else:
+            _model = self.model
+
+        if self.debug_iters > 0:
+            # 1. load model
+            init_weight = self.pickle_to_load['init_weight']
+            try:
+                # import ipdb
+                # ipdb.set_trace()
+                # from tools.ddpm_cvt import convert_whole_state_dict
+                # ckpt = convert_whole_state_dict(init_weight)
+                if is_module_wrapper(self.model):
+                    _model = self.model.module
+                else:
+                    _model = self.model
+
+                resblock_type = _model.denoising.module.resblock_cfg['type']
+                if resblock_type == 'DDPM_ResBlock':
+                    from tools.ddpm_cvt import convert_whole_state_dict
+                    ckpt = convert_state_dict_with_offRes(init_weight)
+                else:
+                    from tools.ddpm_cvt import convert_whole_state_dict
+                    ckpt = convert_whole_state_dict(init_weight)
+
+                _model.denoising.module.load_state_dict(ckpt)
+
+            except Exception:
+                _model.denoising.module.load_state_dict(init_weight)
 
         while self.iter < self._max_iters:
             for i, flow in enumerate(workflow):

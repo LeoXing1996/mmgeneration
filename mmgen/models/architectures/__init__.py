@@ -3,7 +3,7 @@ from .biggan import (BigGANDeepDiscriminator, BigGANDeepGenerator,
                      BigGANDiscriminator, BigGANGenerator, SNConvModule)
 from .cyclegan import ResnetGenerator
 from .dcgan import DCGANDiscriminator, DCGANGenerator
-from .DDPM import DenoisingUnet
+from .DDPM import DenoisingUnet, UNetModel
 from .fid_inception import InceptionV3
 from .lpips import PerceptualLoss
 from .lsgan import LSGANDiscriminator, LSGANGenerator
@@ -35,5 +35,6 @@ __all__ = [
     'PerceptualLoss', 'WGANGPDiscriminator', 'WGANGPGenerator',
     'LSGANDiscriminator', 'LSGANGenerator', 'ProjDiscriminator',
     'SNGANGenerator', 'BigGANGenerator', 'SNConvModule', 'DenoisingUnet',
-    'BigGANDiscriminator', 'BigGANDeepGenerator', 'BigGANDeepDiscriminator'
+    'BigGANDiscriminator', 'BigGANDeepGenerator', 'BigGANDeepDiscriminator',
+    'UNetModel'
 ]

@@ -238,4 +238,4 @@ def var_to_tensor(var, index, target_shape=None, device=None):
 
     while len(var_indexed.shape) < len(target_shape):
         var_indexed = var_indexed[..., None]
-    return var_indexed
+    return var_indexed.expand(target_shape)

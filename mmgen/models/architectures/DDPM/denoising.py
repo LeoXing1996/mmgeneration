@@ -344,7 +344,9 @@ class DenoisingUnet(nn.Module):
 
         # forward upsample blocks
         for block in self.out_blocks:
-            h = block(torch.cat([h, hs.pop()], dim=1), embedding)
+            cat_in = torch.cat([h, hs.pop()], dim=1)
+            h = block(cat_in, embedding)
+            # h = block(torch.cat([h, hs.pop()], dim=1), embedding)
         outputs = self.out(h)
 
         output_dict = dict()
@@ -378,6 +380,64 @@ class DenoisingUnet(nn.Module):
                 output_dict['label'] = label
 
         return output_dict
+
+    def forward_raw(self, x_t, t, rescale_timesteps=True):
+        if self.rescale_timesteps and rescale_timesteps:
+            t = t.float() * (1000.0 / self.num_timesteps)
+        embedding = self.time_embedding(t)
+
+        h, hs = x_t, []
+        # forward downsample blocks
+        for block in self.in_blocks:
+            h = block(h, embedding)
+            hs.append(h)
+
+        # forward middle blocks
+        h = self.mid_blocks(h, embedding)
+
+        # forward upsample blocks
+        for block in self.out_blocks:
+            cat_in = torch.cat([h, hs.pop()], dim=1)
+            h = block(cat_in, embedding)
+        outputs = self.out(h)
+        return outputs
+
+    def forward_inp_mid(self, x_t, t):
+
+        if self.rescale_timesteps:
+            t = t.float() * (1000.0 / self.num_timesteps)
+        embedding = self.time_embedding(t)
+
+        h, hs = x_t, []
+        # forward downsample blocks
+        for block in self.in_blocks:
+            h = block(h, embedding)
+            hs.append(h)
+
+        # forward middle blocks
+        h = self.mid_blocks(h, embedding)
+        return h
+
+    def forward_inp(self, x_t, t, idx=-1):
+        if self.rescale_timesteps:
+            t = t.float() * (1000.0 / self.num_timesteps)
+        embedding = self.time_embedding(t)
+
+        h, hs = x_t, []
+        # forward downsample blocks
+        for i, block in enumerate(self.in_blocks):
+            if idx >= 0 and i > idx:
+                print(f'Stop at {i-1}')
+                break
+            h = block(h, embedding)
+            hs.append(h)
+        return h
+
+    def forward_emb(self, x_t, t):
+        if self.rescale_timesteps:
+            t = t.float() * (1000.0 / self.num_timesteps)
+        embedding = self.time_embedding(t)
+        return embedding
 
     def init_weights(self, pretrained=None):
         """Init weights for models.

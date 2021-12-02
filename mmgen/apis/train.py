@@ -41,7 +41,8 @@ def train_model(model,
                 distributed=False,
                 validate=False,
                 timestamp=None,
-                meta=None):
+                meta=None,
+                debug_kwargs=None):
     logger = get_root_logger(cfg.log_level)
 
     # prepare data loaders
@@ -113,7 +114,8 @@ def train_model(model,
                 work_dir=cfg.work_dir,
                 logger=logger,
                 use_apex_amp=_use_apex_amp,
-                meta=meta))
+                meta=meta,
+                **debug_kwargs))
     else:
         runner = IterBasedRunner(
             model,
