@@ -464,6 +464,9 @@ class DenoisingUnet(nn.Module):
                     constant_init(m, 0)
                 if isinstance(m, nn.Conv1d) and 'proj' in n:
                     constant_init(m, 0)
+                # weight init for offRes --> 'out_layres'
+                if isinstance(m, nn.Conv2d) and ('out_layers' in n):
+                    constant_init(m, 0)
         else:
             raise TypeError('pretrained must be a str or None but'
                             f' got {type(pretrained)} instead.')

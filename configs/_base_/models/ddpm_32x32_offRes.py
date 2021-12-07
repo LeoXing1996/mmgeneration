@@ -10,7 +10,7 @@ model = dict(
         resblocks_per_downsample=3,
         attention_res=[16, 8],
         use_scale_shift_norm=True,
-        dropout=0,
+        dropout=0.3,
         num_heads=4,
         use_rescale_timesteps=True,
         output_cfg=dict(mean='eps', var='learned_range'),
