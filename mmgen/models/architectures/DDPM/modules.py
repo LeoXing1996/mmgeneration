@@ -5,6 +5,7 @@ from functools import partial
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from mmcv.cnn import ACTIVATION_LAYERS
 from mmcv.cnn.bricks import build_activation_layer, build_norm_layer
 from mmcv.cnn.utils import constant_init
@@ -471,12 +472,14 @@ class DenoisingUpsample(nn.Module):
             layer after upsampling.  Defaults to `True`.
     """
 
-    def __init__(self, in_channels, with_conv=True):
+    def __init__(self, in_channels, with_conv=True, deterministic=False):
         super().__init__()
         if with_conv:
             self.with_conv = True
             self.conv = nn.Conv2d(in_channels, in_channels, 3, 1, 1)
-        self.upsample = MyUpsample2()
+        if deterministic:
+            self.upsample = MyUpsample2()
+        self.deterministic = deterministic
 
     def forward(self, x):
         """Forward function for upsampling operation.
@@ -487,7 +490,10 @@ class DenoisingUpsample(nn.Module):
             torch.Tensor: Feature map after upsampling.
         """
         # x = F.interpolate(x, scale_factor=2, mode='nearest')
-        x = self.upsample(x)
+        if self.deterministic:
+            x = self.upsample(x)
+        else:
+            x = F.interpolate(x, scale_factor=2, mode='nearest')
         if self.with_conv:
             x = self.conv(x)
         return x

@@ -142,13 +142,14 @@ class Upsample(nn.Module):
                  upsampling occurs in the inner-two dimensions.
     """
 
-    def __init__(self, channels, use_conv, dims=2):
+    def __init__(self, channels, use_conv, dims=2, deterministic=False):
         super().__init__()
         self.channels = channels
         self.use_conv = use_conv
         self.dims = dims
         if use_conv:
             self.conv = conv_nd(dims, channels, channels, 3, padding=1)
+        self.deterministic = deterministic
 
     def forward(self, x):
         assert x.shape[1] == self.channels
@@ -157,7 +158,14 @@ class Upsample(nn.Module):
                 x, (x.shape[2], x.shape[3] * 2, x.shape[4] * 2),
                 mode='nearest')
         else:
-            x = F.interpolate(x, scale_factor=2, mode='nearest')
+            if self.deterministic:
+                x = x[:, :, :, None, :, None].expand(-1, -1, -1, 2, -1,
+                                                     2).reshape(
+                                                         x.size(0), x.size(1),
+                                                         x.size(2) * 2,
+                                                         x.size(3) * 2)
+            else:
+                x = F.interpolate(x, scale_factor=2, mode='nearest')
         if self.use_conv:
             x = self.conv(x)
         return x
@@ -521,7 +529,7 @@ class UNetModel(nn.Module):
         :return: an [N x C x ...] Tensor of outputs.
         """
         # rescale timesteps
-        t = t.float() * (1000 / 4000)
+        t = t.float() * (1000. / 4000)
 
         assert (label is not None) == (
             self.num_classes is not None
@@ -545,7 +553,8 @@ class UNetModel(nn.Module):
         h = h.type(x.dtype)
         output = self.out(h)
 
-        eps, factor = output.split(3, dim=1)
+        # eps, factor = output.split(3, dim=1)
+        eps, factor = th.split(output, 3, dim=1)
         factor = (factor + 1) / 2
 
         output_dict = dict(eps_t_pred=eps, factor=factor)
