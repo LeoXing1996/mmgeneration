@@ -23,11 +23,7 @@ model = dict(
             loss_name='loss_coarse'),
     ])
 
-train_cfg = dict(
-    noise_cfg='gaussian',
-    num_points_per_image=1024,
-    precrop_iter=500,
-    precrop_frac=0.5)
+train_cfg = dict(noise_cfg='gaussian', num_points_per_image=1024)
 test_cfg = None
 
 lr_config = dict(policy='TFStep', by_epoch=False, step=500 * 1000, gamma=0.1)

@@ -368,12 +368,11 @@ class Camera(object):
 
         plane = plane.to(device) if device is not None else plane
         if n_points is not None:
-            # BUG: debug here
-            # np.random.seed(0)
+            # TODO: bug for precrop --> we should not choice from [0, H_*W_]
             selected_idx = np.random.choice(H_ * W_, n_points, replace=False)
             plane = plane[selected_idx]
         else:
-            selected_idx = np.arange(H * W)
+            selected_idx = np.arange(H_ * W_)
 
         return plane, selected_idx
 

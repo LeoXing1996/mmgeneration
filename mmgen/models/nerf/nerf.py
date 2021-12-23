@@ -70,7 +70,6 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         self._parse_train_cfg()
         if test_cfg is not None:
             self._parse_eval_cfg()
-        # self.load_state_dict(torch.load('tmp.pt'))
 
     def _parse_train_cfg(self):
         """Parsing train config and set some attributes for training."""
@@ -78,15 +77,13 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
             self.train_cfg = dict()
 
         # set batch chunk for inference to avoid out-of-memory
-        self.render_chunk = self.train_cfg.get('batch_chunk', 1024 * 32)
-        # self.network_chunk = self.train_cfg.get('batch_chunk', 1024 * 64)
-        self.network_chunk = self.train_cfg.get('batch_chunk', 1024 * 32)
+        self.render_chunk = self.train_cfg.get('render_chunk', 1024 * 32)
+        self.network_chunk = self.train_cfg.get('network_chunk', 1024 * 64)
 
         self.n_points_train = self.train_cfg.get('num_points_per_image', None)
         self.n_points_eval = None
 
         self.noise_cfg = self.train_cfg.get('noise_cfg', 'gaussian')
-        # self.noise_fn = getattr(self, f'{self.noise_cfg}_noise')
         self.noise_fn = partial(
             self._add_noise_to_z,
             noise_fn=getattr(self, f'{self.noise_cfg}_noise'))
@@ -110,8 +107,8 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
             self.test_cfg = dict()
 
         # set batch chunk for inference to avoid out-of-memory
-        self.render_chunk = self.test_cfg.get('batch_chunk', 1024 * 32)
-        self.network_chunk = self.test_cfg.get('batch_chunk', 1024 * 64)
+        self.render_chunk = self.test_cfg.get('render_chunk', 1024 * 32)
+        self.network_chunk = self.test_cfg.get('network_chunk', 1024 * 64)
 
         # in eval, we sample all points, set n_points as None
         self.n_points_eval = None
@@ -225,14 +222,6 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         return loss, log_vars
 
     def gaussian_noise(self, tar_shape):
-
-        # BUG: just for debug overwrite u with numpy's fixed random numbers
-        # import numpy as np
-        # np.random.seed(0)
-        # t_rand = np.random.rand(*list(tar_shape))
-        # t_rand = torch.Tensor(t_rand).to(get_module_device(self))
-        # return t_rand
-
         return torch.randn(tar_shape).to(get_module_device(self))
 
     def _add_noise_to_z(self, z_vals, noise_fn):
@@ -305,8 +294,6 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
             f'acc_{suffix}': acc_map,
             f'weights_{suffix}': weights
         }
-        # import ipdb
-        # ipdb.set_trace()
         return output_dict
 
     def train_step(self,
@@ -334,8 +321,6 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         output_dict = self.reconstruction_step(data_batch, return_noise=True)
         loss, log_vars = self._get_nerf_loss(output_dict)
 
-        # import ipdb
-        # ipdb.set_trace()
         if ddp_reducer is not None:
             ddp_reducer.prepare_for_backward(_find_tensors(loss))
         if loss_scaler:
@@ -348,8 +333,6 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         else:
             loss.backward()
 
-        # import ipdb
-        # ipdb.set_trace()
         if loss_scaler:
             loss_scaler.unscale_(optimizer)
             # note that we do not contain clip_grad procedure
@@ -446,9 +429,9 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
                 points_fine, z_vals_fine = self.prepare_hierarchical_sampling(
                     z_vals_render, weights_render, camera_pose, rays_render)
 
-                n_points_fine = points_fine.shape[1]
+                n_samples_fine = points_fine.shape[1]
                 views_render_expand = views_render.expand(
-                    -1, n_points_fine, -1)
+                    -1, n_samples_fine, -1)
                 # 1.5.2 forward network_fine
                 network_data_dict_fine = dict(
                     views=views_render_expand, points=points_fine)
