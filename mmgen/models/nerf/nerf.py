@@ -482,9 +482,8 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
                 if isinstance(v, torch.Tensor)
             }
 
-            # print(self.iteration, self.training)
-            if not self.training:
-                self._update_img_buffer(results_dict)
+            # if not self.training:
+            #     self._update_img_buffer(results_dict)
             return results_dict
 
         return torch.cat(results_list, dim=0).unsqueeze(0)
