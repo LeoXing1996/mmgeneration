@@ -5,9 +5,11 @@ import os.path as osp
 import sys
 import warnings
 from bisect import bisect_right
+from copy import deepcopy
 
 import mmcv
 import torch
+from mmcv.parallel import is_module_wrapper
 from mmcv.runner import HOOKS, Hook, get_dist_info
 
 from ..registry import build_metric
@@ -18,9 +20,9 @@ class GenerativeEvalHook(Hook):
     """Evaluation Hook for Generative Models.
 
     This evaluation hook can be used to evaluate unconditional and conditional
-    models. Note that only ``FID`` and ``IS`` metric are supported for the
-    distributed training now. In the future, we will support more metrics for
-    the evaluation during the training procedure.
+    models. Note that only ``FID``, ``IS`` and ``PSNR`` metric are supported
+    for the distributed training now. In the future, we will support more
+    metrics for the evaluation during the training procedure.
 
     In our config system, you only need to add `evaluation` with the detailed
     configureations. Below is several usage cases for different situations.
@@ -111,9 +113,13 @@ class GenerativeEvalHook(Hook):
     """
     rule_map = {'greater': lambda x, y: x > y, 'less': lambda x, y: x < y}
     init_value_map = {'greater': -math.inf, 'less': math.inf}
-    greater_keys = ['acc', 'top', 'AR@', 'auc', 'precision', 'mAP', 'is']
+    greater_keys = [
+        'acc', 'top', 'AR@', 'auc', 'precision', 'mAP', 'is', 'psnr'
+    ]
     less_keys = ['loss', 'fid']
-    _supported_best_metrics = ['fid', 'is']
+    _supported_best_metrics = ['fid', 'is', 'psnr']
+    _recon_metric_name = ['GaussianKLD', 'PSNR']
+    _special_metric_name = ['PPL']
 
     def __init__(self,
                  dataloader,
@@ -172,6 +178,21 @@ class GenerativeEvalHook(Hook):
         if isinstance(metrics, dict):
             self.metrics = [self.metrics]
 
+        self.vanilla_metrics = []
+        self.special_metrics = []
+        self.recon_metrics = []
+        for metric in self.metrics:
+            if metric.name in self._recon_metric_name:
+                self.recon_metrics.append(metric)
+            elif metric.name in self._special_metric_name:
+                self.special_metrics.append(metric)
+            else:
+                self.vanilla_metrics.append(metric)
+
+        if len(self.special_metrics) != 0:
+            raise ValueError('We not support Special metrics in '
+                             'GenerativeEvalHook currently.')
+
         for metric in self.metrics:
             metric.prepare()
 
@@ -211,6 +232,26 @@ class GenerativeEvalHook(Hook):
                 runner.meta = dict()
             runner.meta.setdefault('hook_msgs', dict())
 
+    def _check_eval_buffer(self, model, runner_iter):
+        if hasattr(model, 'eval_img_buffer'):
+            iteration = model.eval_img_buffer_iter
+            return iteration == runner_iter
+        return False
+
+    def _get_recon_results_from_buffer(self, buffer):
+        results = dict()
+        for k, v in buffer.items():
+            if isinstance(v, list) and mmcv.is_list_of(v, torch.Tensor):
+                results[k] = torch.cat(v, dim=0)
+            elif isinstance(v, torch.Tensor):
+                results[k] = v
+            else:
+                raise TypeError(
+                    'We only support tensor for list of tensor as values '
+                    f'for eval_buffer, but receive {type(v)}')
+        return results
+
+    @torch.no_grad()
     def after_train_iter(self, runner):
         """The behavior after each train iteration.
 
@@ -228,14 +269,43 @@ class GenerativeEvalHook(Hook):
         total_batch_size = batch_size * ws
 
         # sample real images
-        max_real_num_images = max(metric.num_images - metric.num_real_feeded
-                                  for metric in self.metrics)
+        max_real_num_images = 0
+        need_entire_dataset = False
+        for metric in self.vanilla_metrics + self.recon_metrics:
+            metric.prepare()
+            max_real_num_images = max(
+                max_real_num_images,
+                metric.num_real_need - metric.num_real_feeded)
+            need_entire_dataset = metric.num_real_need == -1
+
+        _model = runner.model.module if is_module_wrapper(
+            runner.model) else runner.model
+
+        # handle image buffer for reconstruction metrics
+        if need_entire_dataset:
+            if self._check_eval_buffer(_model, runner.iter):
+                # direct feed buffer to recon_metric
+                for metric in self.metrics:
+                    _model.collect_img_buffer()
+                    if metric.num_real_need == -1:
+                        metric.feed(_model.eval_img_buffer, mode='reals')
+                        mmcv.print_log(
+                            f'Find eval_buffer for Iter {runner.iter}, '
+                            f'directly feed to {metric.name}.')
+            else:
+                max_real_num_images = max(
+                    len(self.dataloader.dataset), max_real_num_images)
+
         # define mmcv progress bar
-        if rank == 0 and max_real_num_images > 0:
-            mmcv.print_log(
-                f'Sample {max_real_num_images} real images for evaluation',
-                'mmgen')
-            pbar = mmcv.ProgressBar(max_real_num_images)
+        if rank == 0:
+            if max_real_num_images == 0:
+                mmcv.print_log('No not need real images for evaluation',
+                               'mmgen')
+            else:
+                mmcv.print_log(
+                    f'Sample {max_real_num_images} real images for evaluation',
+                    'mmgen')
+                pbar = mmcv.ProgressBar(max_real_num_images)
 
         if max_real_num_images > 0:
             for data in self.dataloader:
@@ -258,8 +328,15 @@ class GenerativeEvalHook(Hook):
                     reals = reals.repeat(1, 3, 1, 1)
 
                 num_feed = 0
-                for metric in self.metrics:
+                for metric in self.vanilla_metrics:
                     num_feed_ = metric.feed(reals, 'reals')
+                    num_feed = max(num_feed_, num_feed)
+                for metric in self.recon_metrics:
+                    kwargs = deepcopy(self.sample_kwargs)
+                    kwargs['mode'] = 'reconstruction'
+                    kwargs['return_noise'] = True
+                    prob_dict = runner.model(data, return_loss=False, **kwargs)
+                    num_feed_ = metric.feed(prob_dict, 'reals')
                     num_feed = max(num_feed_, num_feed)
 
                 if num_feed <= 0:
@@ -268,31 +345,41 @@ class GenerativeEvalHook(Hook):
                 if rank == 0:
                     pbar.update(num_feed)
 
-        max_num_images = max(metric.num_images for metric in self.metrics)
-        if rank == 0:
-            mmcv.print_log(
-                f'Sample {max_num_images} fake images for evaluation', 'mmgen')
+            if rank == 0:
+                # finish the pbar stdout
+                sys.stdout.write('\n')
 
-        # define mmcv progress bar
-        if rank == 0:
-            pbar = mmcv.ProgressBar(max_num_images)
+        max_fake_num_images = max(metric.num_images for metric in self.metrics)
+        if max_fake_num_images > 0:
+            if rank == 0:
+                mmcv.print_log(
+                    f'Sample {max_fake_num_images} fake images for evaluation',
+                    'mmgen')
 
-        # sampling fake images and directly send them to metrics
-        for _ in range(0, max_num_images, total_batch_size):
+            # define mmcv progress bar
+            if rank == 0:
+                pbar = mmcv.ProgressBar(max_fake_num_images)
 
-            with torch.no_grad():
-                fakes = runner.model(
-                    None,
-                    num_batches=batch_size,
-                    return_loss=False,
-                    **self.sample_kwargs)
+            # sampling fake images and directly send them to metrics
+            for _ in range(0, max_fake_num_images, total_batch_size):
 
-                for metric in self.metrics:
-                    # feed in fake images
-                    metric.feed(fakes, 'fakes')
+                with torch.no_grad():
+                    fakes = runner.model(
+                        None,
+                        num_batches=batch_size,
+                        return_loss=False,
+                        **self.sample_kwargs)
+
+                    for metric in self.vanilla_metrics:
+                        # feed in fake images
+                        metric.feed(fakes, 'fakes')
+
+                if rank == 0:
+                    pbar.update(total_batch_size)
 
             if rank == 0:
-                pbar.update(total_batch_size)
+                # finish the pbar stdout
+                sys.stdout.write('\n')
 
         runner.log_buffer.clear()
         # a dirty walkround to change the line at the end of pbar

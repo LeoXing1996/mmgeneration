@@ -343,6 +343,46 @@ def sliced_wasserstein(distribution_a,
     return sum(results) / dir_repeats
 
 
+def psnr(img1, img2, crop_border=0, convert_to=None):
+    """Calculate PSNR (Peak Signal-to-Noise Ratio).
+
+    Ref: https://en.wikipedia.org/wiki/Peak_signal-to-noise_ratio
+
+    Args:
+        img1 (ndarray): Images with range [0, 255] and order "HWC" or "H*WC".
+        img2 (ndarray): Images with range [0, 255] and order "HWC" or "H*WC".
+        crop_border (int): Cropped pixels in each edges of an image. These
+            pixels are not involved in the PSNR calculation. Default: 0.
+        convert_to (str): Whether to convert the images to other color models.
+            If None, the images are not altered. When computing for 'Y',
+            the images are assumed to be in BGR order. Options are 'Y' and
+            None. Default: None.
+
+    Returns:
+        float: psnr result.
+    """
+
+    assert img1.shape == img2.shape, (
+        f'Image shapes are different: {img1.shape}, {img2.shape}.')
+
+    img1, img2 = img1.astype(np.float32), img2.astype(np.float32)
+    if isinstance(convert_to, str) and convert_to.lower() == 'y':
+        img1 = mmcv.bgr2ycbcr(img1 / 255., y_only=True) * 255.
+        img2 = mmcv.bgr2ycbcr(img2 / 255., y_only=True) * 255.
+    elif convert_to is not None:
+        raise ValueError('Wrong color model. Supported values are '
+                         '"Y" and None.')
+
+    if crop_border != 0:
+        img1 = img1[crop_border:-crop_border, crop_border:-crop_border, None]
+        img2 = img2[crop_border:-crop_border, crop_border:-crop_border, None]
+
+    mse_value = np.mean((img1 - img2)**2)
+    if mse_value == 0:
+        return float('inf')
+    return 20. * np.log10(255. / np.sqrt(mse_value))
+
+
 class Metric(ABC):
     """The abstract base class of metrics. Basically, we split calculation into
     three steps. First, we initialize the metric object and do some
@@ -380,6 +420,17 @@ class Metric(ABC):
 
         return self._result_str
 
+    def _calculate_end(self, batch_size, is_real):
+        """"""
+        mode = 'real' if is_real else 'fale'
+        fed = getattr(self, f'num_{mode}_feeded')
+        need = getattr(self, f'num_{mode}_need')
+        if need == -1:
+            end = batch_size
+        else:
+            end = min(batch_size, need - fed)
+        return end
+
     def feed(self, batch, mode):
         """Feed a image batch into metric calculator and perform intermediate
         operation in 'feed_op' function.
@@ -396,20 +447,19 @@ class Metric(ABC):
         if mode == 'reals':
             if self.num_real_feeded == self.num_real_need:
                 return 0
-
+            # reconstruction metrics input a dict
             if isinstance(batch, dict):
                 batch_size = [v for v in batch.values()][0].shape[0]
-                end = min(batch_size,
-                          self.num_real_need - self.num_real_feeded)
+                end = self._calculate_end(batch_size, True)
                 batch_to_feed = {k: v[:end, ...] for k, v in batch.items()}
             else:
                 batch_size = batch.shape[0]
-                end = min(batch_size,
-                          self.num_real_need - self.num_real_feeded)
+                end = self._calculate_end(batch_size, True)
                 batch_to_feed = batch[:end, ...]
 
-            global_end = min(batch_size * ws,
-                             self.num_real_need - self.num_real_feeded)
+            # global_end = min(batch_size * ws,
+            #                  self.num_real_need - self.num_real_feeded)
+            global_end = self._calculate_end(batch_size * ws, is_real=True)
             self.feed_op(batch_to_feed, mode)
             self.num_real_feeded += global_end
             return end
@@ -419,14 +469,15 @@ class Metric(ABC):
                 return 0
 
             batch_size = batch.shape[0]
-            end = min(batch_size, self.num_fake_need - self.num_fake_feeded)
+            end = self._calculate_end(batch_size, False)
             if isinstance(batch, dict):
                 batch_to_feed = {k: v[:end, ...] for k, v in batch.items()}
             else:
                 batch_to_feed = batch[:end, ...]
 
-            global_end = min(batch_size * ws,
-                             self.num_fake_need - self.num_fake_feeded)
+            # global_end = min(batch_size * ws,
+            #                  self.num_fake_need - self.num_fake_feeded)
+            global_end = self._calculate_end(batch_size * ws, is_real=False)
             self.feed_op(batch_to_feed, mode)
             self.num_fake_feeded += global_end
             return end
@@ -437,6 +488,8 @@ class Metric(ABC):
 
     def check(self):
         """Check the numbers of image."""
+        if self.num_real_need == -1:
+            return
         assert self.num_real_feeded == self.num_fake_feeded == self.num_images
 
     @abstractmethod
@@ -1478,3 +1531,120 @@ class GaussianKLD(Metric):
             kld_result = np.sum(kld_np) / kld_np.shape[0]
         self._result_str = (f'{kld_result:.4f}')
         return kld_result
+
+
+@METRICS.register_module()
+class PSNR(Metric):
+    """Support more input shape, support more scale."""
+
+    _support_order = ['NCHW', 'NH*WC']
+    _support_scale = [[-1, 1], [0, 1], None]
+
+    name = 'PSNR'
+
+    def __init__(self,
+                 num_images,
+                 input_scale=[-1, 1],
+                 input_order='NCHW',
+                 bgr2rgb=False,
+                 data_info=None):
+        super().__init__(num_images, image_shape=None)
+        assert input_scale in self._support_scale
+        assert input_order in self._support_order
+
+        self.input_scale = input_scale
+        self.input_order = input_order
+        self.bgr2rgb = bgr2rgb
+
+        assert data_info is not None
+        assert 'reals' in data_info and 'fakes' in data_info
+        self.real_keys = data_info['reals']
+        self.fake_keys = data_info['fakes']
+
+    def prepare(self):
+        """Prepare for evaluating models with this metric."""
+        self.psnr = []
+        self.num_real_feeded = 0
+
+    def clear(self):
+        """Prepare for evaluating models with this metric."""
+        self.psnr = []
+        self.num_real_feeded = 0
+
+    def _rescale(self, img):
+        """Rescale the input image to [0, 255].
+        Args:
+            img (torch.Tensor): Image to be rescaled
+
+        Returns:
+            torch.Tensor: Rescaled image.
+        """
+        if self.input_scale == [-1, 1]:
+            img_ = (img + 1) / 2 * 255.
+        elif self.input_scale == [0, 1]:
+            img_ = img * 255.
+        elif self.input_scale is None:
+            if img.min() < 0:
+                img_ = img * 255.
+            else:
+                img_ = (img + 1) / 2 * 255.
+        else:
+            raise ValueError(
+                f'Unsupport \'input_scale\': {self.input_scale}, we only '
+                'support \'[0, 1]\' or [-1, 1].')
+
+        img_ = torch.clamp(img_, 0, 255.)
+        return img_
+
+    @torch.no_grad()
+    def feed_op(self, batch, mode):
+        if mode == 'fakes':
+            return
+        assert isinstance(batch, dict), (
+            'To calculate PSNR, a dict contains generated images and real '
+            'images is required.')
+
+        assert self.real_keys in batch
+        assert self.fake_keys in batch
+        fake, real = batch[self.fake_keys], batch[self.real_keys]
+
+        # gather all of images if using distributed training
+        if dist.is_initialized() and (fake.device != torch.device('cpu')
+                                      and real.device != torch.device('cpu')):
+            ws = dist.get_world_size()
+            fake_placeholder = [torch.zeros_like(fake) for _ in range(ws)]
+            real_placeholder = [torch.zeros_like(real) for _ in range(ws)]
+            dist.all_gather(fake_placeholder, fake)
+            dist.all_gather(real_placeholder, real)
+            fake = torch.cat(fake_placeholder, dim=0)
+            real = torch.cat(real_placeholder, dim=0)
+
+        # shape checking
+        if self.input_order == 'NCHW':
+            assert fake.ndim == 4 and real.ndim == 4
+        else:  # NH*WC
+            assert fake.ndim == 3 and real.ndim == 3
+
+        # in distributed training, we only collect features at rank-0.
+        if ((dist.is_initialized() and dist.get_rank() == 0)
+                or not dist.is_initialized()):
+            batch_size = fake.shape[0]
+            for idx in range(batch_size):
+                fake_ = self._rescale(fake[idx]).cpu().numpy()
+                if self.bgr2rgb:
+                    fake_ = fake_[:, (2, 1, 0)]
+                real_ = self._rescale(real[idx]).cpu().numpy()
+                self.psnr.append(psnr(fake_, real_))
+
+    @torch.no_grad()
+    def summary(self):
+        """Summarize the results.
+
+        Returns:
+            np.ndarray: Sumarized results.
+        """
+        self.check()
+        results = np.mean(self.psnr)
+        self._result_str = str(results)
+        self._result_dict = dict(psnr=results)
+        return results

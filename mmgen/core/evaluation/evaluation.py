@@ -270,12 +270,12 @@ def online_evaluation(model, data_loader, metrics, logger, basic_table_info,
     recon_metrics = []
     vanilla_metrics = []
     special_metric_name = ['PPL']
-    recon_metric_name = ['GaussianKLD']
+    recon_metric_name = ['GaussianKLD', 'PSNR']
     for metric in metrics:
         if ws > 1:
             assert metric.name in [
-                'FID', 'IS'
-            ], ('We only support FID and IS for distributed evaluation '
+                'FID', 'IS', 'PSNR'
+            ], ('We only support FID, IS, PSNR for distributed evaluation '
                 f'currently, but receive {metric.name}')
 
         if metric.name in special_metric_name:
@@ -285,58 +285,69 @@ def online_evaluation(model, data_loader, metrics, logger, basic_table_info,
         else:
             vanilla_metrics.append(metric)
 
-    # define mmcv progress bar
     max_num_images = 0
+    need_entire_dataset = False
     for metric in vanilla_metrics + recon_metrics:
         metric.prepare()
         max_num_images = max(max_num_images,
                              metric.num_real_need - metric.num_real_feeded)
+        need_entire_dataset = metric.num_real_need == -1
+
+    if need_entire_dataset:
+        max_num_images = max(len(data_loader.dataset), max_num_images)
+
+    # define mmcv progress bar
     if rank == 0:
-        mmcv.print_log(f'Sample {max_num_images} real images for evaluation',
-                       'mmgen')
-        pbar = mmcv.ProgressBar(max_num_images)
-
-    # avoid `data_loader` is None
-    data_loader = [] if data_loader is None else data_loader
-    for data in data_loader:
-        if 'real_img' in data:
-            reals = data['real_img']
-        # key for conditional GAN
-        elif 'img' in data:
-            reals = data['img']
+        if max_num_images == 0:
+            mmcv.print_log('No not need real images for evaluation', 'mmgen')
         else:
-            raise KeyError('Cannot found key for images in data_dict. '
-                           'Only support `real_img` for unconditional '
-                           'datasets and `img` for conditional '
-                           'datasets.')
+            mmcv.print_log(
+                f'Sample {max_num_images} real images for evaluation', 'mmgen')
+            pbar = mmcv.ProgressBar(max_num_images)
 
-        if reals.shape[1] not in [1, 3]:
-            raise RuntimeError('real images should have one or three '
-                               'channels in the first, '
-                               'not % d' % reals.shape[1])
-        if reals.shape[1] == 1:
-            reals = reals.repeat(1, 3, 1, 1)
+    if max_num_images != 0:
+        # avoid `data_loader` is None
+        data_loader = [] if data_loader is None else data_loader
+        for data in data_loader:
+            if 'real_img' in data:
+                reals = data['real_img']
+            # key for conditional GAN
+            elif 'img' in data:
+                reals = data['img']
+            else:
+                raise KeyError('Cannot found key for images in data_dict. '
+                               'Only support `real_img` for unconditional '
+                               'datasets and `img` for conditional '
+                               'datasets.')
 
-        num_feed = 0
-        for metric in vanilla_metrics:
-            num_feed_ = metric.feed(reals, 'reals')
-            num_feed = max(num_feed_, num_feed)
-        for metric in recon_metrics:
-            kwargs_ = deepcopy(kwargs)
-            kwargs_['mode'] = 'reconstruction'
-            prob_dict = model(reals, return_loss=False, **kwargs_)
-            num_feed_ = metric.feed(prob_dict, 'reals')
-            num_feed = max(num_feed_, num_feed)
+            if reals.shape[1] not in [1, 3]:
+                raise RuntimeError('real images should have one or three '
+                                   'channels in the first, '
+                                   'not % d' % reals.shape[1])
+            if reals.shape[1] == 1:
+                reals = reals.repeat(1, 3, 1, 1)
 
-        if num_feed <= 0:
-            break
+            num_feed = 0
+            for metric in vanilla_metrics:
+                num_feed_ = metric.feed(reals, 'reals')
+                num_feed = max(num_feed_, num_feed)
+            for metric in recon_metrics:
+                kwargs_ = deepcopy(kwargs)
+                kwargs_['mode'] = 'reconstruction'
+                kwargs_['return_noise'] = True
+                prob_dict = model(reals, return_loss=False, **kwargs_)
+                num_feed_ = metric.feed(prob_dict, 'reals')
+                num_feed = max(num_feed_, num_feed)
+
+            if num_feed <= 0:
+                break
+
+            if rank == 0:
+                pbar.update(num_feed)
 
         if rank == 0:
-            pbar.update(num_feed)
-
-    if rank == 0:
-        # finish the pbar stdout
-        sys.stdout.write('\n')
+            # finish the pbar stdout
+            sys.stdout.write('\n')
 
     # define mmcv progress bar
     max_num_images = 0 if len(vanilla_metrics) == 0 else max(
