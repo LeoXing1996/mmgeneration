@@ -7,6 +7,7 @@ from .ddpm import DenoisingUnet
 from .fid_inception import InceptionV3
 from .lpips import PerceptualLoss
 from .lsgan import LSGANDiscriminator, LSGANGenerator
+from .nerf import NeRFRenderer
 from .pggan import (EqualizedLR, EqualizedLRConvDownModule,
                     EqualizedLRConvModule, EqualizedLRConvUpModule,
                     EqualizedLRLinearModule, MiniBatchStddevLayer,
@@ -35,5 +36,6 @@ __all__ = [
     'PerceptualLoss', 'WGANGPDiscriminator', 'WGANGPGenerator',
     'LSGANDiscriminator', 'LSGANGenerator', 'ProjDiscriminator',
     'SNGANGenerator', 'BigGANGenerator', 'SNConvModule', 'BigGANDiscriminator',
-    'BigGANDeepGenerator', 'BigGANDeepDiscriminator', 'DenoisingUnet'
+    'BigGANDeepGenerator', 'BigGANDeepDiscriminator', 'DenoisingUnet',
+    'NeRFRenderer'
 ]
