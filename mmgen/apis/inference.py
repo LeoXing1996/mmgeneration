@@ -5,8 +5,10 @@ from mmcv.parallel import collate, scatter
 from mmcv.runner import load_checkpoint
 from mmcv.utils import is_list_of
 
+from mmgen.datasets.builder import build_dataset
 from mmgen.datasets.pipelines import Compose
 from mmgen.models import BaseTranslationModel, build_model
+from mmgen.models.architectures.common import get_module_device
 
 
 def init_model(config, checkpoint=None, device='cuda:0', cfg_options=None):
@@ -43,6 +45,32 @@ def init_model(config, checkpoint=None, device='cuda:0', cfg_options=None):
     model.eval()
 
     return model
+
+
+def init_dataset(config, subset, cfg_options=None):
+    """Initialize a dataset from config file.
+
+    Args:
+        config (str or :obj:`mmcv.Config`): Config file path or the config
+            object.
+        cfg_options (dict): Options to override some settings in the used
+            config.
+
+    Returns:
+        dataset: The constructed dataset.
+    """
+    if isinstance(config, str):
+        config = mmcv.Config.fromfile(config)
+    elif not isinstance(config, mmcv.Config):
+        raise TypeError('config must be a filename or Config object, '
+                        f'but got {type(config)}')
+    if cfg_options is not None:
+        config.merge_from_dict(cfg_options)
+
+    assert subset in config.data, (
+        f'Cannot find subset {subset} in \'config.data\'.')
+    dataset = build_dataset(config.data[subset])
+    return dataset
 
 
 @torch.no_grad()
@@ -227,3 +255,36 @@ def sample_img2img_model(model, image_path, target_domain=None, **kwargs):
             **kwargs)
     output = results['target']
     return output
+
+
+@torch.no_grad()
+def sample_nerf_model(model,
+                      dataset,
+                      num_samples=16,
+                      sample_model='ema',
+                      **kwargs):
+
+    model.eval()
+    assert len(dataset) >= num_samples, (
+        '\'num_samples\' is larger than the length of dataset.')
+
+    device = get_module_device(model)
+    res_list = []
+
+    pbar = mmcv.ProgressBar(num_samples)
+    # process is a little slow, add pbar here.
+    for idx in range(num_samples):
+        data_batch = dataset[idx]
+
+        data_batch = {
+            k: v.squeeze(0).to(device)
+            for k, v in data_batch.items() if isinstance(v, torch.Tensor)
+        }
+        res_list.append(model(data_batch, sample_model=sample_model, **kwargs))
+        pbar.update(1)
+
+    res_ = torch.cat(res_list, dim=0)
+    H, W = dataset.camera.H, dataset.camera.W
+    res_ = res_.reshape([-1, H, W, 3]).permute(0, 3, 1, 2)
+
+    return res_

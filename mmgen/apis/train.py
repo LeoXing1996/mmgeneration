@@ -35,6 +35,22 @@ def set_random_seed(seed, deterministic=False, use_rank_shift=True):
         seed, deterministic=deterministic, use_rank_shift=use_rank_shift)
 
 
+def build_val_dataloader(cfg, distributed):
+
+    val_dataset = build_dataset(cfg.data.val, dict(test_mode=True))
+    # Support batch_size > 1 in validation
+    val_loader_cfg = {
+        'samples_per_gpu': 1,
+        'shuffle': False,
+        'workers_per_gpu': cfg.data.workers_per_gpu,
+        'persistent_workers': cfg.data.get('persistent_workers', False),
+        **cfg.data.get('val_data_loader', {})
+    }
+    val_dataloader = build_dataloader(
+        val_dataset, dist=distributed, **val_loader_cfg)
+    return val_dataloader
+
+
 def train_model(model,
                 dataset,
                 cfg,
@@ -160,18 +176,20 @@ def train_model(model,
     # Thus, if you want a eval hook, you need further define the key of
     # 'evaluation' in the config.
     # register eval hooks
+    val_dataloader = None
     if validate and cfg.get('evaluation', None) is not None:
-        val_dataset = build_dataset(cfg.data.val, dict(test_mode=True))
-        # Support batch_size > 1 in validation
-        val_loader_cfg = {
-            'samples_per_gpu': 1,
-            'shuffle': False,
-            'workers_per_gpu': cfg.data.workers_per_gpu,
-            'persistent_workers': cfg.data.get('persistent_workers', False),
-            **cfg.data.get('val_data_loader', {})
-        }
-        val_dataloader = build_dataloader(
-            val_dataset, dist=distributed, **val_loader_cfg)
+        # val_dataset = build_dataset(cfg.data.val, dict(test_mode=True))
+        # # Support batch_size > 1 in validation
+        # val_loader_cfg = {
+        #     'samples_per_gpu': 1,
+        #     'shuffle': False,
+        #     'workers_per_gpu': cfg.data.workers_per_gpu,
+        #     'persistent_workers': cfg.data.get('persistent_workers', False),
+        #     **cfg.data.get('val_data_loader', {})
+        # }
+        # val_dataloader = build_dataloader(
+        #     val_dataset, dist=distributed, **val_loader_cfg)
+        val_dataloader = build_val_dataloader(cfg, distributed)
         eval_cfg = deepcopy(cfg.get('evaluation'))
         priority = eval_cfg.pop('priority', 'LOW')
         eval_cfg.update(dict(dist=distributed, dataloader=val_dataloader))
@@ -189,7 +207,14 @@ def train_model(model,
                 f'{type(hook_cfg)}'
             hook_cfg = hook_cfg.copy()
             priority = hook_cfg.pop('priority', 'NORMAL')
-            hook = build_from_cfg(hook_cfg, HOOKS)
+            if hook_cfg.type == 'VisualizeReconstructionSamples':
+                if val_dataloader is None:
+                    val_dataloader = build_val_dataloader(cfg, distributed)
+                default_args = dict(
+                    dataloader=val_dataloader, dist=distributed)
+            else:
+                default_args = None
+            hook = build_from_cfg(hook_cfg, HOOKS, default_args)
             runner.register_hook(hook, priority=priority)
 
     if cfg.resume_from:
