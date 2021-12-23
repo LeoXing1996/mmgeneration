@@ -34,4 +34,4 @@ lr_config = dict(policy='TFStep', by_epoch=False, step=500 * 1000, gamma=0.1)
 
 optimizer = dict(type='Adam', lr=5e-4, betas=(0.5, 0.999))
 
-total_iters = 200000
+total_iters = 500000
