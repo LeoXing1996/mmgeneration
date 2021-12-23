@@ -153,6 +153,7 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         for k, v in self._eval_img_buffer.items():
             if isinstance(v, list):
                 self._eval_img_buffer[k] = torch.cat(v, dim=0)
+        torch.cuda.empty_cache()
 
     def _update_img_buffer(self, output_dict):
         """Function for evaluation.
@@ -482,8 +483,9 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
                 if isinstance(v, torch.Tensor)
             }
 
-            # if not self.training:
-            #     self._update_img_buffer(results_dict)
+            # print(self.iteration, self.training)
+            if not self.training:
+                self._update_img_buffer(results_dict)
             return results_dict
 
         return torch.cat(results_list, dim=0).unsqueeze(0)
