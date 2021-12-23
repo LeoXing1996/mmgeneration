@@ -346,14 +346,17 @@ class Camera(object):
                     torch.linspace(self.H_range[0], self.H_range[1] - 1, H))
                 H_, W_ = H, W
             else:
-                # TODO: have bug when h_range is not start from 0
                 dH = int(H // 2 * precrop_frac)
                 dW = int(W // 2 * precrop_frac)
+                H_cent = (self.H_range[0] + self.H_range[1]) // 2
+                W_cent = (self.W_range[0] + self.W_range[1]) // 2
                 x, y = torch.meshgrid(
-                    torch.linspace(H // 2 - dH, H // 2 + dH - 1, 2 * dH),
-                    torch.linspace(W // 2 - dW, W // 2 + dW - 1, 2 * dW))
+                    torch.linspace(H_cent - dH, H_cent + dH - 1, 2 * dH),
+                    torch.linspace(W_cent - dW, W_cent + dW - 1, 2 * dW))
                 H_, W_ = dH * 2, dW * 2
 
+            coords = torch.stack([x.flatten(), y.flatten()],
+                                 dim=0).type(torch.LongTensor)
             x = x.T.flatten()
             y = y.T.flatten()
 
@@ -368,13 +371,13 @@ class Camera(object):
 
         plane = plane.to(device) if device is not None else plane
         if n_points is not None:
-            # TODO: bug for precrop --> we should not choice from [0, H_*W_]
             selected_idx = np.random.choice(H_ * W_, n_points, replace=False)
             plane = plane[selected_idx]
+            coords = coords[:, selected_idx]
         else:
             selected_idx = np.arange(H_ * W_)
 
-        return plane, selected_idx
+        return plane, selected_idx, coords
 
     def sample_z_vals(self,
                       noise,
@@ -546,7 +549,7 @@ class Camera(object):
         pose[:3] = transform_matrix[:3, -1]
         return camera2world.float(), pose.float()
 
-    def select_pixels(self, imgs, select_idx):
+    def select_pixels(self, imgs, coords=None):
         """
         Args:
             imgs: [3, H, W]
@@ -556,7 +559,7 @@ class Camera(object):
             [num_points, 3]
         """
         imgs_ = imgs.clone().permute(1, 2, 0)
-        imgs_ = imgs_.view(-1, 3)[select_idx]
+        imgs_ = imgs_[coords[0], coords[1], :]
 
         return imgs_
 
@@ -605,7 +608,7 @@ class Camera(object):
                             **kwargs):
 
         # sample points
-        plane, selected_idx = self.sample_image_plane(
+        plane, selected_idx, coords = self.sample_image_plane(
             n_points=n_points, precrop_frac=precrop_frac, device=device)
 
         # prepare for camera2world matrix and pose
@@ -622,11 +625,12 @@ class Camera(object):
         ray_dict = self.sample_rays(camera_pose, plane, plane_world,
                                     camera2world)
 
-        output_dict = dict(camera_pose=camera_pose, selected_idx=selected_idx)
+        output_dict = dict(
+            camera_pose=camera_pose, selected_idx=selected_idx, coords=coords)
         output_dict.update(ray_dict)
 
         if real_img is not None:
-            pixel_selected = self.select_pixels(real_img, selected_idx)
+            pixel_selected = self.select_pixels(real_img, coords)
             output_dict['real_pixels'] = pixel_selected
 
         return output_dict
