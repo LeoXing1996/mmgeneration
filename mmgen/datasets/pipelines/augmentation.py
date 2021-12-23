@@ -415,3 +415,48 @@ class CenterCropLongEdge:
         repr_str = self.__class__.__name__
         repr_str += (f'(keys={self.keys})')
         return repr_str
+
+
+@PIPELINES.register_module()
+class BackGroundtoWhite:
+    """Convert transparent background to white.
+
+    This operation should done after the normalization operation
+
+    Args:
+        keys (list[str]): The images to be .
+    """
+
+    def __init__(self, keys, white_background=True):
+        assert keys, 'Keys should not be empty.'
+        self.keys = keys
+
+        self.white_background = white_background
+
+    def __call__(self, results):
+        """Call function.
+
+        Args:
+            results (dict): A dict containing the necessary information and
+                data for augmentation.
+
+        Returns:
+            dict: A dict containing the processed data and information.
+        """
+
+        for key in self.keys:
+            img = results[key]
+            assert img.shape[2] == 4
+            if self.white_background:
+                img = img[..., :3] * img[..., -1:] + (1. - img[..., -1:])
+            else:
+                img = img[..., :3]
+            results[key] = img
+
+        return results
+
+    def __repr__(self):
+        repr_str = self.__class__.__name__
+        repr_str += (
+            f'(keys={self.keys}, white_background={self.white_background})')
+        return repr_str
