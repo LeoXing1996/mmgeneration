@@ -178,9 +178,11 @@ def main():
     else:
         basic_table_info['num_samples'] = -1
         # build the dataloader
-        if cfg.data.get('test', None) and cfg.data.test.get('imgs_root', None):
+        if cfg.data.get('test', None) and (cfg.data.test.get(
+                'imgs_root', None) or cfg.data.test.get('dataroot', None)):
             dataset = build_dataset(cfg.data.test)
-        elif cfg.data.get('val', None) and cfg.data.val.get('imgs_root', None):
+        elif cfg.data.get('val', None) and (cfg.data.val.get(
+                'imgs_root', None) or cfg.data.val.get('dataroot', None)):
             dataset = build_dataset(cfg.data.val)
         elif cfg.data.get('train', None):
             # we assume that the train part should work well

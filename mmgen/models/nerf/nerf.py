@@ -158,6 +158,9 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         Different from `self.train_step`, we save the output_dict to the image
         buffer. Then EvalHook and VisHook can load images from this buffer.
         """
+        # not found self.iteration, called byhh evaluation.py Do nothing
+        if not hasattr(self, 'iteration'):
+            return
         if self._eval_img_buffer:
             assert all([k in output_dict for k in self._eval_img_buffer])
         for k, v in output_dict.items():
