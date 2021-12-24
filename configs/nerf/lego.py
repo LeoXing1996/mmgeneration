@@ -32,8 +32,7 @@ evaluation = dict(
         num_images=-1,
         data_info=dict(reals='real_pixels', fakes='rgb_final'),
         input_order='NH*WC',
-        input_scale=[0, 1],
-        bgr2rgb=True),
+        input_scale=[0, 1]),
     best_metric='psnr',
     sample_kwargs=dict(sample_model='orig'))
 
@@ -41,8 +40,7 @@ dataroot = './data/blender/lego'
 data = dict(
     train=dict(dataset=dict(dataroot=dataroot)),
     val=dict(dataroot=dataroot, skip_per_image=8),
-    test=dict(dataroot=dataroot),
-    shuffle=False)
+    test=dict(dataroot=dataroot))
 
 metrics = dict(
     psnr=dict(
@@ -50,5 +48,4 @@ metrics = dict(
         num_images=-1,
         data_info=dict(reals='real_pixels', fakes='rgb_final'),
         input_order='NH*WC',
-        input_scale=[0, 1],
-        bgr2rgb=True))
+        input_scale=[0, 1]))
