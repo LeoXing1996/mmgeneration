@@ -1567,9 +1567,8 @@ class PSNR(Metric):
         self.num_real_feeded = 0
 
     def clear(self):
-        """Prepare for evaluating models with this metric."""
-        self.psnr = []
-        self.num_real_feeded = 0
+        """Clear for evaluating models with this metric."""
+        self.prepare()
 
     def _rescale(self, img):
         """Rescale the input image to [0, 255].

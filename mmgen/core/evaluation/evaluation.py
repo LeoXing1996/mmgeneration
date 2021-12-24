@@ -335,7 +335,7 @@ def online_evaluation(model, data_loader, metrics, logger, basic_table_info,
                 kwargs_ = deepcopy(kwargs)
                 kwargs_['mode'] = 'reconstruction'
                 kwargs_['return_noise'] = True
-                prob_dict = model(reals, return_loss=False, **kwargs_)
+                prob_dict = model(data, return_loss=False, **kwargs_)
                 num_feed_ = metric.feed(prob_dict, 'reals')
                 num_feed = max(num_feed_, num_feed)
 
