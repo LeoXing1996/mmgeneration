@@ -83,7 +83,7 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         self.n_points_train = self.train_cfg.get('num_points_per_image', None)
         self.n_points_eval = None
 
-        self.noise_cfg = self.train_cfg.get('noise_cfg', 'gaussian')
+        self.noise_cfg = self.train_cfg.get('noise_cfg', 'uniform')
         self.noise_fn = partial(
             self._add_noise_to_z,
             noise_fn=getattr(self, f'{self.noise_cfg}_noise'))
@@ -226,6 +226,9 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
 
     def gaussian_noise(self, tar_shape):
         return torch.randn(tar_shape).to(get_module_device(self))
+
+    def uniform_noise(self, tar_shape):
+        return torch.rand(tar_shape).to(get_module_device(self))
 
     def _add_noise_to_z(self, z_vals, noise_fn):
         mids = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
