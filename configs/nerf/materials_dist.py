@@ -24,6 +24,13 @@ custom_hooks = [
         vis_keys=['rgb_final', 'rgb_coarse', 'real_pixels'])
 ]
 
+log_config = dict(
+    interval=100,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='PaviLoggerHook', init_kwargs=dict(project='NeRF'))
+    ])
+
 evaluation = dict(
     type='GenerativeEvalHook',
     interval=50000,

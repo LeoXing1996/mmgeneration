@@ -3,6 +3,13 @@ _base_ = [
     '../_base_/models/nerf/blender.py', '../_base_/default_runtime.py'
 ]
 
+log_config = dict(
+    interval=100,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='PaviLoggerHook', init_kwargs=dict(project='NeRF'))
+    ])
+
 camera = dict(
     camera_angle_x=0.6194058656692505,
     H_range=[0, 800],
