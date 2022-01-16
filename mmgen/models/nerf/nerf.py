@@ -80,17 +80,10 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         self.render_chunk = self.train_cfg.get('render_chunk', 1024 * 32)
         self.network_chunk = self.train_cfg.get('network_chunk', 1024 * 64)
 
-        self.n_points_train = self.train_cfg.get('num_points_per_image', None)
-        self.n_points_eval = None
-
         self.noise_cfg = self.train_cfg.get('noise_cfg', 'uniform')
         self.noise_fn = partial(
             self._add_noise_to_z,
             noise_fn=getattr(self, f'{self.noise_cfg}_noise'))
-
-        # set precrop end iter and precrop frac
-        self.precrop_iter = self.train_cfg.get('precrop_iter', -1)
-        self.precrop_frac = self.train_cfg.get('precrop_frac', None)
 
         # whether to use exponential moving average for training
         self.use_ema = self.train_cfg.get('use_ema', False)
@@ -110,9 +103,6 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         self.render_chunk = self.test_cfg.get('render_chunk', 1024 * 32)
         self.network_chunk = self.test_cfg.get('network_chunk', 1024 * 64)
 
-        # in eval, we sample all points, set n_points as None
-        self.n_points_eval = None
-
         # whether to use exponential moving average for training
         self.use_ema = self.test_cfg.get('use_ema', False)
         if self.use_ema:
@@ -122,16 +112,20 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
                 self.neural_renderer_fine_ema = deepcopy(
                     self.neural_renderer_fine)
 
-    def get_precrop_frac(self):
-        if not self.training or not hasattr(self, 'precrop_iter'):
-            return None
-        if self.iteration > self.precrop_iter:
-            return None
-        return self.precrop_frac
+    def eval(self):
+        """Overwrite module.eval, in order to set eval mode for ray sampler."""
+        super().eval()
+        self.camera.ray_sampler.eval()
 
-    @property
-    def n_points(self):
-        return self.n_points_train if self.training else self.n_points_eval
+    def train(self, mode=True):
+        """Overwrite module.train, in order to set train mode for ray sampler.
+
+        Args:
+            mode (bool): whether to set training mode (``True``) or evaluation
+                mode (``False``). Defaults to ``True``.
+        """
+        super().train(mode)
+        self.camera.ray_sampler.train(mode=mode)
 
     @property
     def eval_img_buffer(self):
@@ -383,10 +377,7 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         # 0. prepare rays, points, and other variables for rendering
         # TODO: here we can make a data_mapping like Loss
         render_dict = self.camera.prepare_render_rays(
-            **data_batch_,
-            n_points=self.n_points,
-            precrop_frac=self.get_precrop_frac(),
-            device=device)
+            **data_batch_, device=device)
         camera_pose = render_dict['camera_pose']
         views = render_dict['views']
         rays = render_dict['rays']
@@ -462,7 +453,7 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
 
         # 2. cat the results and return
         if return_noise:
-            results_dict = self.concatenate_dict(results_list)
+            results_dict = self.concatenate_dict(results_list, self.training)
             results_dict.update(render_dict)
             # TODO: instance checking can be removed later, for now in use
             # some np array for debug

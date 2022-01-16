@@ -248,9 +248,9 @@ class VisualizeReconstructionSamples(Hook):
             prob_dict = runner.model(data, return_loss=False, **kwargs)
             for k, v in prob_dict.items():
                 if k in results:
-                    results[k].append(v)
+                    results[k].append(v.cpu())
                 else:
-                    results[k] = [v]
+                    results[k] = [v.cpu()]
             pbar.update()
 
         for k, v in results.items():

@@ -1,8 +1,11 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+from copy import deepcopy
+
 import numpy as np
 import torch
 from mmcv.utils import is_list_of
 
+from mmgen.models.builder import build_module
 from .util import (degree2radian, gaussian_sampling, normalize_vector,
                    pose_to_tensor, prepare_matrix, prepare_vector,
                    uniform_sampling)
@@ -34,6 +37,8 @@ class Camera(object):
         'uniform', 'gaussian', 'normal', 'truncated_gaussian', 'spherical'
     ]
 
+    _default_ray_sampler = dict(type='FullRaySampler', n_points=None)
+
     def __init__(
             self,
             camera_matrix=None,
@@ -43,6 +48,7 @@ class Camera(object):
             W=None,
             H_range=None,
             W_range=None,
+            ray_sampler=None,
             near=None,
             far=None,
             focal=None,
@@ -58,16 +64,21 @@ class Camera(object):
 
         self.H, self.W, self.H_range, self.W_range = self.get_image_plane(
             H, W, H_range, W_range)
+
+        # build ray sampler
+        if ray_sampler is None:
+            ray_sampler = self._default_ray_sampler
+        ray_sampler_ = deepcopy(ray_sampler)
+        ray_sampler_['H_range'] = self.H_range
+        ray_sampler_['W_range'] = self.W_range
+        self.ray_sampler = build_module(ray_sampler_)
+
         self.near, self.far = near, far
         self.degree2radian = degree2radian
 
         # init instrinst matrix / projection matrix / camera matrix
         self.camera_matrix, self.focal = self.get_camera_matrix(
             camera_matrix, focal, fov, camera_angle_x)
-
-        # save the full image plane
-        # self.plane, _ = self.sample_image_plane(n_points=None)
-        # print(self.plane.shape)
 
         assert camera_sample_mode in self._support_sample_dist
         self.camera_sample_mode = camera_sample_mode
@@ -304,16 +315,9 @@ class Camera(object):
         RT[:, :3, 3] = camera_position
         return RT
 
-    def sample_image_plane(self,
-                           plane=None,
-                           H=None,
-                           W=None,
-                           invert_y_axis=True,
-                           precrop_frac=None,
-                           n_points=None,
-                           homo=True,
-                           device=None):
-        """generate the given image plane with given H, W and camera focal.
+    def plane_to_camera(self, plane, invert_y_axis=True, device=None):
+        """Convert the image plane from `plane coordinates` to `camera
+        coordinates`.
 
                |              ^ x
                |             /
@@ -324,60 +328,23 @@ class Camera(object):
 
         Here we use [x, y, -1/f, 1] instead [x, y, -1, 1] to avoid matrix
         calculation
-        because projection @ poinst =
+        because projection @ points =
         [[f 0 0 W],   [W,     [x,   [f(x-W),    [ (x-W)/f,
          [0 f 0 H],    H,      y,    f(y-H),      (y-H)/f,
          [0 0 1 0], @  0,   @ -f, =    -f,    =     -1,
          [0 0 0 1]]    1]      1]       1, ]        1/f  ]
          To be noted that, depth have no meaning, for we direct simplify
          [..., 1/f] to [..., -1]
-
-        Returns:
-            tuple(torch.Tensor, torch.Tensor): Flattened plane [H*W, 4] and
-                selected_idx [H*W, ]
         """
-        if plane is None:
-            H = self.H if H is None else H
-            W = self.W if W is None else W
-            if precrop_frac is None:
-                # full screen NDC (normalized device coordinates) [-1, 1]
-                x, y = torch.meshgrid(
-                    torch.linspace(self.W_range[0], self.W_range[1] - 1, W),
-                    torch.linspace(self.H_range[0], self.H_range[1] - 1, H))
-                H_, W_ = H, W
-            else:
-                dH = int(H // 2 * precrop_frac)
-                dW = int(W // 2 * precrop_frac)
-                H_cent = (self.H_range[0] + self.H_range[1]) // 2
-                W_cent = (self.W_range[0] + self.W_range[1]) // 2
-                x, y = torch.meshgrid(
-                    torch.linspace(H_cent - dH, H_cent + dH - 1, 2 * dH),
-                    torch.linspace(W_cent - dW, W_cent + dW - 1, 2 * dW))
-                H_, W_ = dH * 2, dW * 2
+        plane[:, 0] = (plane[:, 0] - self.camera_matrix[0, -1]) / self.focal
+        plane[:, 1] = (plane[:, 1] - self.camera_matrix[1, -1]) / self.focal
+        plane[:, 2] = -1
 
-            coords = torch.stack([x.flatten(), y.flatten()],
-                                 dim=0).type(torch.LongTensor)
-            x = x.T.flatten()
-            y = y.T.flatten()
-
-            plane = torch.ones(H_ * W_, 4) if homo \
-                else torch.ones(H_ * W_, 3)
-            plane[:, 0] = (x - self.camera_matrix[0, -1]) / self.focal
-            plane[:, 1] = (y - self.camera_matrix[1, -1]) / self.focal
-            plane[:, 2] = -torch.ones_like(x)
-
-            if invert_y_axis:
-                plane[:, 1] = plane[:, 1] * -1
-
-        plane = plane.to(device) if device is not None else plane
-        if n_points is not None:
-            selected_idx = np.random.choice(H_ * W_, n_points, replace=False)
-            plane = plane[selected_idx]
-            coords = coords[:, selected_idx]
-        else:
-            selected_idx = np.arange(H_ * W_)
-
-        return plane, selected_idx, coords
+        if invert_y_axis:
+            plane[:, 1] = plane[:, 1] * -1
+        if device is not None:
+            plane = plane.to(device)
+        return plane
 
     def sample_z_vals(self,
                       noise,
@@ -422,6 +389,17 @@ class Camera(object):
                     plane=None,
                     plane_world=None,
                     camera2world=None):
+        """
+        Args:
+            Camera position: Position of the current camera
+            plane: plane in current coordinates
+            plane_world: plane in the world coordinates
+            camera2world: trans matrix from camera coordinates to the world
+                coordinates
+        Returns:
+            dict(tensor): dict contains normalized view directions and rays
+                vectors
+        """
         camera_position = prepare_vector(
             camera_position, to_matrix=False, is_batch=False)
 
@@ -598,18 +576,16 @@ class Camera(object):
 
     def prepare_render_rays(self,
                             real_img=None,
-                            plane=None,
                             plane_world=None,
                             camera_pose=None,
                             transform_matrix=None,
-                            n_points=None,
-                            precrop_frac=None,
                             device=None,
                             **kwargs):
 
         # sample points
-        plane, selected_idx, coords = self.sample_image_plane(
-            n_points=n_points, precrop_frac=precrop_frac, device=device)
+        sample_dict = self.ray_sampler.sample_rays(real_img)
+        sample_dict['points_selected'] = self.plane_to_camera(
+            sample_dict['points_selected'], invert_y_axis=True, device=device)
 
         # prepare for camera2world matrix and pose
         if transform_matrix is not None:
@@ -621,16 +597,14 @@ class Camera(object):
         else:
             camera_pose = self.get_random_pose(camera_pose).to(device)
             camera2world = self.get_camera2world(camera_pose).to(device)
+        sample_dict['camera_pose'] = camera_pose
 
-        ray_dict = self.sample_rays(camera_pose, plane, plane_world,
-                                    camera2world)
+        # actually return a dict contains ray-vector and view vectors
+        # maybe we should change name
+        ray_dict = self.sample_rays(camera_pose,
+                                    sample_dict['points_selected'],
+                                    plane_world, camera2world)
 
-        output_dict = dict(
-            camera_pose=camera_pose, selected_idx=selected_idx, coords=coords)
-        output_dict.update(ray_dict)
-
-        if real_img is not None:
-            pixel_selected = self.select_pixels(real_img, coords)
-            output_dict['real_pixels'] = pixel_selected
-
-        return output_dict
+        sample_dict.update(ray_dict)
+        # return output_dict
+        return sample_dict
