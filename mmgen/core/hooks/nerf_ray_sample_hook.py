@@ -78,4 +78,4 @@ class FlexGridRaySamplerHook(NeRFRaySampleHook):
             curr_min_scale = min(0.9, curr_min_scale)
         else:
             curr_min_scale = min_scale
-        ray_sampler.set_curr_min_scale(curr_min_scale)
+        ray_sampler.set_min_scale(curr_min_scale)
