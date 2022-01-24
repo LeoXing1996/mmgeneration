@@ -277,3 +277,21 @@ def prepare_vector(vector, is_batch=True, is_homo=True, to_matrix=True):
             vector = vector[..., :3]
 
     return vector
+
+
+def sample_in_range(upper_bound, n_samples, batch_size):
+    """Sample `n_samples` random integer in range of `[0, upper_bound]` for
+    `batch_size` samples.
+
+    Args:
+        upper_bound (int): The upper bound of sample range.
+        n_samples (int): number random to sample for each sample.
+        batch_size (int): The number of sample in batch.
+    Returns:
+        np.ndarray: Shape as [bz, n_samples]
+    """
+    selected = [
+        np.random.choice(upper_bound, n_samples, replace=False)[None, ...]
+        for _ in range(batch_size)
+    ]
+    return np.concatenate(selected, axis=0)

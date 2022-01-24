@@ -3,6 +3,7 @@ import torch
 import torch.nn.functional as F
 
 from mmgen.models.builder import MODULES
+from .util import sample_in_range
 
 
 @MODULES.register_module('FullRaySampler')
@@ -11,10 +12,11 @@ class RaySampler(object):
     """Sample points from on a plane, and the plane is in image coordinates,
     and will be trans to camera coordinates in ``Camera`` class."""
 
-    def __init__(self, H_range, W_range, n_points=None):
+    def __init__(self, H_range, W_range, n_points=None, is_homo=True):
         self.H_range, self.W_range = H_range, W_range
         self.n_points = n_points
         self.training = True
+        self.is_homo = is_homo
 
     def train(self, mode=True):
         self.training = mode
@@ -22,8 +24,13 @@ class RaySampler(object):
     def eval(self):
         self.training = False
 
-    def sample_plane_full(self, is_homo=True):
-        """Get the index of the full image plane."""
+    def sample_plane_full(self, batch_size=1):
+        """Get the index of the full image plane.
+
+        Args:
+            batch_size (int): The batch size of the plane we want to generate.
+                Defaults to 1.
+        """
         # get a full plane
         H = self.H_range[1] - self.H_range[0]
         W = self.W_range[1] - self.W_range[0]
@@ -34,17 +41,22 @@ class RaySampler(object):
         x = x.T.flatten()
         y = y.T.flatten()
         total_points = x.shape[0]
-        plane = torch.ones(total_points, 4) if is_homo else \
+        plane = torch.ones(total_points, 4) if self.is_homo else \
             torch.ones(total_points, 3)
         plane[:, 0] = x
         plane[:, 1] = y
-        return plane
+
+        # repeat at the first dimension
+        return plane.unsqueeze(0).repeat([batch_size, 1, 1])
 
     def select_index(self, plane):
         """
         Args:
             planne (torch.Tensor): [N, 3] or [N, 4]
             n_poinst (int, optional): If None, sample all points
+
+        Returns:
+            np.ndarray: Selected index
         """
         if not self.training or self.n_points is None:
             return self._select_index_eval(plane)
@@ -59,36 +71,51 @@ class RaySampler(object):
     def sample_pixels(self, image, *args):
         """Sample pixels on image."""
         # pixels = image.view(3, -1).t()
-        # [3, H, W] to [H*W, 3]
-        pixels = image.clone().permute(1, 2, 0).view(-1, 3)
+        # [bz, 3, H, W] to [bz, H*W, 3]
+        batch_size = image.shape[0]
+        pixels = image.clone().permute(0, 2, 3, 1).view(batch_size, -1, 3)
         if not self.training or self.n_points is None:
             return self._sample_pixels_eval(pixels, *args)
         return self._sample_pixels_train(pixels, *args)
 
     def _select_index_train(self, plane):
-        # NOTE: just fordebug
-        np.random.seed(0)
+        """
+        Args:
+            plane (torch.Tensor)
 
-        total_points = plane.shape[0]
-        selected_idx = np.random.choice(
-            total_points, self.n_points, replace=False)
+        Returns:
+            np.ndarray: Selected index for training.
+        """
+
+        batch_size, total_points = plane.shape[:2]
+        selected_idx = sample_in_range(total_points, self.n_points, batch_size)
         return selected_idx
 
     def _select_index_eval(self, plane):
-        total_points = plane.shape[0]
-        selected_idx = np.arange(total_points)
+        batch_size, total_points = plane.shape[:2]
+        selected_idx = np.repeat(
+            np.arange(total_points)[None, ...], batch_size, axis=0)
         return selected_idx
 
     def _sample_points_train(self, plane, index):
         """Sample plane in when self.training is True."""
-        return plane[index]
+        # same usage as `torch.gather`
+        return np.take_along_axis(plane, index[..., None], axis=1)
 
     def _sample_points_eval(self, plane, *args):
         """Sample plane when self.training is False."""
         return plane
 
     def _sample_pixels_train(self, image, index):
-        return image[index]
+        """
+        Args:
+            image (torch.Tensor)
+            index (np.ndarray)
+        Returns:
+            torch.Tensor
+        """
+        # same usage as `torch.gather`
+        return np.take_along_axis(image, index[..., None], axis=1)
 
     def _sample_pixels_eval(self, image, *args):
         return image
@@ -121,15 +148,24 @@ class RaySampler(object):
 
         return vis_dict
 
-    def sample_rays(self, image=None, *args, **kwargs):
+    def sample_rays(self, batch_size=1, image=None, *args, **kwargs):
         """
         Args:
             plane: [N, 3] or [N, 4]
             image: [3, H, W]
+            batch_size (int, optional): Batch size. If ``image`` is given,
+                batch size of ``image`` must consistency with ``batch_size``.
+                Defaults to 1.
             we assert H*W == N
         """
+        if image is not None:
+            assert image.shape[0] == batch_size, (
+                'Batch size of the given image must be consistency with '
+                f'\'batch_size\', but receive \'{image.shape[0]}\' and '
+                f'\'{batch_size}\'')
+
         # init plane
-        plane = self.sample_plane_full()
+        plane = self.sample_plane_full(batch_size)
 
         sample_dict = dict()
         selected_idx = self.select_index(plane)
@@ -139,7 +175,7 @@ class RaySampler(object):
             selected_idx=selected_idx, points_selected=points_selected)
 
         if image is not None:
-            # [H*W, 3] --> [n_points, 3]
+            # [bz, H*W, 3] --> [bz, n_points, 3]
             image_selected = self.sample_pixels(image, selected_idx)
             sample_dict['real_pixels'] = image_selected
 
@@ -147,7 +183,7 @@ class RaySampler(object):
 
 
 @MODULES.register_module()
-class PrecropSampler(RaySampler):
+class PrecropRaySampler(RaySampler):
 
     def __init__(self, precrop_frac, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -162,7 +198,14 @@ class PrecropSampler(RaySampler):
         self.curr_precrop_frac = precrop_frac
 
     def _get_index_to_select(self, plane):
-        """Get index to select under ``self.curr_percrop_frac``"""
+        """Get index to select under ``self.curr_percrop_frac``
+        Args:
+            plane (torch.Tensor): [bz, H*W, 3/4]
+
+        Returns:
+            np.ndarray: Index under the current precrop parameters, shape
+                like [bz, N'].
+        """
         H = self.H_range[1] - self.H_range[0]
         W = self.W_range[1] - self.W_range[0]
         precrop_frac = self.curr_precrop_frac
@@ -175,32 +218,69 @@ class PrecropSampler(RaySampler):
         H_range_percrop = (H_cent - dH, H_cent + dH - 1)
         W_range_percrop = (W_cent - dW, W_cent + dW - 1)
 
-        mask_H = torch.logical_and(plane[:, 0] >= H_range_percrop[0],
-                                   plane[:, 0] <= H_range_percrop[1])
-        mask_W = torch.logical_and(plane[:, 1] >= W_range_percrop[0],
-                                   plane[:, 1] <= W_range_percrop[1])
-        index_to_select = torch.nonzero(torch.logical_and(mask_H,
-                                                          mask_W)).squeeze()
-        return index_to_select
+        plane_ = plane[0]  # get a single plane shape like [H*W, 3/4]
+        mask_H = torch.logical_and(plane_[..., 0] >= H_range_percrop[0],
+                                   plane_[..., 0] <= H_range_percrop[1])
+        mask_W = torch.logical_and(plane_[..., 1] >= W_range_percrop[0],
+                                   plane_[..., 1] <= W_range_percrop[1])
+        mask = torch.logical_and(mask_H, mask_W)  # [N, ]
+        index_to_select = torch.nonzero(mask).squeeze()  # [1, N']
+
+        # expand to [bz, N']
+        index_to_select = index_to_select.repeat([plane.shape[0], 1])
+        return index_to_select.numpy()
 
     def _select_index_train(self, plane):
+        """
+        Args:
+            plane (np.ndarray): shape like [bz, H*W, 3/4]
+
+        Returns:
+            np.ndarray: Selected index in the full image space, shape like
+                `[bz, N]`.
+        """
         index_to_select = self._get_index_to_select(plane)
 
-        # NOTE: just for debug
-        # np.random.seed(0)
+        batch_size, total_points = plane.shape[0], index_to_select.shape[1]
 
-        total_points = index_to_select.shape[0]
-        selected_idx = index_to_select[np.random.choice(
-            total_points, self.n_points, replace=False)]
+        selected_idx = np.take_along_axis(
+            index_to_select,
+            sample_in_range(total_points, self.n_points, batch_size),
+            axis=1)
         return selected_idx
 
     def _select_index_eval(self, plane):
+        """
+        Args:
+            plane (np.ndarray): shape like [bz, H*W, 3/4]
+
+        Returns:
+            np.ndarray: All index under current precrop parameter, shape like
+                `[bz, N]`.
+        """
+
         index_to_select = self._get_index_to_select(plane)
         return index_to_select
 
+    def _sample_points_eval(self, plane, index):
+        """We only use points under precrop for evaluation.
+
+        Therefore we use the same sample method as
+        ``self._sample_points_train``
+        """
+        return self._sample_points_train(plane, index)
+
+    def _sample_pixels_eval(self, image, index):
+        """We only use points under precrop for evaluation.
+
+        Therefore we use the same sample method as
+        ``self._sample_pixels_train``
+        """
+        return self._sample_pixels_train(image, index)
+
 
 @MODULES.register_module()
-class FlexGridSampler(RaySampler):
+class FlexGridRaySampler(RaySampler):
 
     def __init__(self, min_scale, max_scale, random_shift, random_scale, *args,
                  **kwargs):
@@ -235,69 +315,123 @@ class FlexGridSampler(RaySampler):
         return coords
 
     def _prepare_for_grid_sample(self, tensor):
-        """Input a flatten tensor shape as [H*W, n], and unflattent it to.
+        """Input a flatten tensor shape as [bz, H*W, n], and unflattent it to.
 
-        [1, n, H, W] for grid sample
+        [bz, n, H, W] for grid sample
+
         Args:
             tensor (torch.Tensor): Tensor to unflatten.
 
         Returns:
             torch.Tensor: The unflattened tensor.
         """
-        tensor = tensor.view(self.H_range[1] - self.H_range[0],
+        batch_size = tensor.shape[0]
+        tensor = tensor.view(batch_size, self.H_range[1] - self.H_range[0],
                              self.W_range[1] - self.W_range[0], -1)
-        tensor = tensor.permute(2, 0, 1).unsqueeze(0)
+        tensor = tensor.permute(0, 3, 1, 2)
         return tensor
 
-    def _select_index_train(self, *args):
-        """Return relatively coordinates, range in [-1, 1]"""
+    def _select_index_train(self, plane, *args):
+        """Return relatively coordinates, range in [-1, 1]
+        Args:
+            plane (torch.Tensor): shape like [bz, ]
 
-        plane = self.base_coord
+        Returns:
+            torch.Tensor: The sampled relative coordinates.
+        """
+        batch_size = plane.shape[0]
+
+        base_plane = torch.cat(
+            [self.base_coord[None, ...]] * batch_size, dim=0)
+        # '-1' because we will slice base_plane
+        target_shape = [1 for _ in range(base_plane.ndim - 1)]
+        target_shape[0] = batch_size
+
         if self.random_scale:
-            scale = np.random.uniform(self.curr_min_scale, self.max_scale)
-            plane = plane * scale
+            scale = np.random.uniform(
+                self.curr_min_scale, self.max_scale, size=target_shape)
+            base_plane = base_plane
         else:
             scale = 1
 
         if self.random_shift:
             max_offset = 1 - scale
             h_offset = np.random.uniform(
-                0, max_offset) * (np.random.randint(2, size=(1, )) - 0.5) * 2
+                0, max_offset, size=target_shape) * (
+                    np.random.randint(2, size=target_shape) - 0.5) * 2
             w_offset = np.random.uniform(
-                0, max_offset) * (np.random.randint(2, size=(1, )) - 0.5) * 2
-            plane[0] += h_offset
-            plane[1] += w_offset
+                0, max_offset, size=target_shape) * (
+                    np.random.randint(2, size=target_shape) - 0.5) * 2
+            base_plane[..., 0] += h_offset
+            base_plane[..., 1] += w_offset
 
-        return plane
+        return base_plane
 
     def _sample_points_train(self, plane, coords):
-        """Sample points on plane with
+        """Sample points on plane with given coordinates.
+        ``torch.nn.functional.grid_sample`` is used because the coordinates are
+        not integer.
+
         Args:
+            plane (torch.Tensor): The plane to be sampled. Shape like
+                ``[bz, H, W, 3/4]``.
+            coords (torch.Tensor): The relative coordinates of points to be
+                sampled. Shape like
+                ``[bz, N_samples_sqrt, N_samples_sqrt, 2]``.
+
+        Returns:
+            torch.Tensor: The coordinates of the sampled points on the image
+                plane. Shape like
+                ``[bz, 3/4, N_samples_sqrt, N_samples_sqrt]``.
         """
-        # plane: [H*W, 4] to [1, 4, H, W] for grid sample
+        # plane: [bz, H*W, 3/4] to [bz, 3/4, H, W] for grid sample
         plane_unflatten = self._prepare_for_grid_sample(plane)
 
-        # coords: [H', W', 2] to [1, H', W', 2]
+        # coords: [bz, H', W', 2]
         points_selected = F.grid_sample(
-            plane_unflatten,
-            coords.unsqueeze(0),
-            mode='bilinear',
-            align_corners=True)
+            plane_unflatten, coords, mode='bilinear', align_corners=True)
 
         return points_selected
 
-    def _sample_pixels_train(self, image, coords):
-        """Sample pixels on plane with flex grid.
+    def _sample_points_eval(self, plane, *args):
+        """Return all points in evaluation mode. To align with train mode, the
+        coordinates on image plane are reshaped to ``[bz, 3/4, H, W]``.
 
         Args:
+            plane (torch.Tensor): The full image plane. Shape like
+                ``[bz, H*W, 3/4]``.
         """
-        # image: [H*W, 3] to [1, 3, H, W] for grid sample
+        return self._prepare_for_grid_sample(plane)
+
+    def _sample_pixels_train(self, image, coords):
+        """Sample pixels on image with given coordinates.
+        ``torch.nn.functional.grid_sample`` is used because the coordinates are
+        not integer.
+
+        Args:
+            plane (torch.Tensor): The plane to be sampled. Shape like
+                ``[bz, H, W, 3/4]``.
+            coords (torch.Tensor): The relative coordinates of points to be
+                sampled. Shape like
+                ``[bz, N_samples_sqrt, N_samples_sqrt, 2]``.
+
+        Returns:
+            torch.Tensor: The pixel values of the sampled points of the given
+                image. Shape like ``[bz, 3, N_samples_sqrt, N_samples_sqrt]``.
+        """
+        # image: [bz, H*W, 3] to [bz, 3, H, W] for grid sample
         image_unflatten = self._prepare_for_grid_sample(image)
 
         pixels_selected = F.grid_sample(
-            image_unflatten.cpu(),
-            coords.unsqueeze(0),
-            mode='bilinear',
-            align_corners=True)
-        # self.vis(pixels_selected)
+            image_unflatten.cpu(), coords, mode='bilinear', align_corners=True)
         return pixels_selected
+
+    def _sample_pixels_eval(self, image, *args):
+        """Return all pixels in evaluation mode. To align with train mode, the
+        pixels in image are reshaped to ``[bz, 3, H, W]``.
+
+        Args:
+            image (torch.Tensor): The full image plane. Shape like
+                ``[bz, H*W, 3]``.
+        """
+        return self._prepare_for_grid_sample(image)
