@@ -205,9 +205,9 @@ class TestFlexGridRaySampler:
             key in sample_dict
             for key in ['real_pixels', 'selected_idx', 'points_selected']
         ])
-        assert sample_dict['real_pixels'].shape == (2, 3, 3, 3)
         assert sample_dict['selected_idx'].shape == (2, 3, 3, 2)
-        assert sample_dict['points_selected'].shape == (2, 4, 3, 3)
+        assert sample_dict['real_pixels'].shape == (2, 9, 3)
+        assert sample_dict['points_selected'].shape == (2, 9, 4)
 
         # TODO: maybe we can add some code to test the sample results
 
@@ -225,8 +225,8 @@ class TestFlexGridRaySampler:
         ])
         #  NOTE: 'selected_idx' have no meaning in eval mode, not test this in
         # unit test
-        assert sample_dict['real_pixels'].shape == (2, 3, 10, 10)
-        assert sample_dict['points_selected'].shape == (2, 4, 10, 10)
+        assert sample_dict['real_pixels'].shape == (2, 100, 3)
+        assert sample_dict['points_selected'].shape == (2, 100, 4)
 
         # test random_scale is False + random shift is False
         config = deepcopy(self.default_cfg)

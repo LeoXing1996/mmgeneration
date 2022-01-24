@@ -331,6 +331,20 @@ class FlexGridRaySampler(RaySampler):
         tensor = tensor.permute(0, 3, 1, 2)
         return tensor
 
+    def _prepare_for_camera(self, tensor):
+        """Flatten the input tensor from ``[bz, n, H, W]`` to [bz, H*W, n] for
+        the camera operation.
+
+        Args:
+            tensor (torch.Tensor): Tensor to flatten.
+
+        Returns:
+            torch.Tensor: The flattened tensor.
+        """
+        batch_size, num_chn, H, W = tensor.shape
+        tensor = tensor.view(batch_size, num_chn, H * W).permute(0, 2, 1)
+        return tensor
+
     def _select_index_train(self, plane, *args):
         """Return relatively coordinates, range in [-1, 1]
         Args:
@@ -382,7 +396,7 @@ class FlexGridRaySampler(RaySampler):
         Returns:
             torch.Tensor: The coordinates of the sampled points on the image
                 plane. Shape like
-                ``[bz, 3/4, N_samples_sqrt, N_samples_sqrt]``.
+                ``[bz, N_samples_sqrt*N_samples_sqrt, 3/4]``.
         """
         # plane: [bz, H*W, 3/4] to [bz, 3/4, H, W] for grid sample
         plane_unflatten = self._prepare_for_grid_sample(plane)
@@ -391,17 +405,7 @@ class FlexGridRaySampler(RaySampler):
         points_selected = F.grid_sample(
             plane_unflatten, coords, mode='bilinear', align_corners=True)
 
-        return points_selected
-
-    def _sample_points_eval(self, plane, *args):
-        """Return all points in evaluation mode. To align with train mode, the
-        coordinates on image plane are reshaped to ``[bz, 3/4, H, W]``.
-
-        Args:
-            plane (torch.Tensor): The full image plane. Shape like
-                ``[bz, H*W, 3/4]``.
-        """
-        return self._prepare_for_grid_sample(plane)
+        return self._prepare_for_camera(points_selected)
 
     def _sample_pixels_train(self, image, coords):
         """Sample pixels on image with given coordinates.
@@ -417,21 +421,11 @@ class FlexGridRaySampler(RaySampler):
 
         Returns:
             torch.Tensor: The pixel values of the sampled points of the given
-                image. Shape like ``[bz, 3, N_samples_sqrt, N_samples_sqrt]``.
+                image. Shape like ``[bz, N_samples_sqrt*N_samples_sqrt, 3]``.
         """
         # image: [bz, H*W, 3] to [bz, 3, H, W] for grid sample
         image_unflatten = self._prepare_for_grid_sample(image)
 
         pixels_selected = F.grid_sample(
             image_unflatten.cpu(), coords, mode='bilinear', align_corners=True)
-        return pixels_selected
-
-    def _sample_pixels_eval(self, image, *args):
-        """Return all pixels in evaluation mode. To align with train mode, the
-        pixels in image are reshaped to ``[bz, 3, H, W]``.
-
-        Args:
-            image (torch.Tensor): The full image plane. Shape like
-                ``[bz, H*W, 3]``.
-        """
-        return self._prepare_for_grid_sample(image)
+        return self._prepare_for_camera(pixels_selected)
