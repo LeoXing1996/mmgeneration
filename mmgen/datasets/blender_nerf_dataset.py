@@ -10,7 +10,7 @@ from .custom_nerf_dataset import CustomNeRFDataset
 
 @DATASETS.register_module()
 class BlenderDataset(CustomNeRFDataset):
-    """Dataset for Blender lego.
+    """Dataset for Blender.
 
     ├── test
     │   ├── r_0_depth_0001.png
