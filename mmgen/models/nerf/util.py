@@ -48,6 +48,10 @@ def inverse_transform_sampling(bins,
 
 
 def rescaled_samples(sampling_fn):
+    """
+    Returns:
+        torch.Tensor: Rescaled tensor.
+    """
 
     @functools.wraps(sampling_fn)
     def wrapper(num_batches,
@@ -61,7 +65,7 @@ def rescaled_samples(sampling_fn):
 
         x = sampling_fn(num_batches)
         if lower_bound is not None and upper_bound is not None:
-            assert (lower_bound <= upper_bound).all(), (
+            assert (lower_bound <= upper_bound), (
                 '\'lower_bound\' must less than or equal to \'upper_bound\', '
                 f'but receive {lower_bound} and {upper_bound} respectively.')
             x = x * (upper_bound - lower_bound) + lower_bound
@@ -77,7 +81,7 @@ def rescaled_samples(sampling_fn):
                 'One and only one of the two sets of parameters, ('
                 'lower_bound, upper_bound) and (offset, scale), should not be '
                 'None.')
-        return x
+        return torch.from_numpy(x)
 
     return wrapper
 
@@ -86,8 +90,10 @@ def rescaled_samples(sampling_fn):
 def uniform_sampling(num_batches, same_cross_batch=False):
     """"""
     if same_cross_batch:
-        return torch.rand((1, )).repeat(num_batches)
-    return torch.rand((num_batches, ))
+        # return torch.rand((1, )).repeat(num_batches)
+        return np.random.uniform(size=(1, )).repeat(num_batches)
+    # return torch.rand((num_batches, ))
+    return np.random.uniform(size=(num_batches, ))
 
 
 @rescaled_samples
@@ -241,17 +247,32 @@ def prepare_matrix(matrix, is_batch=True, is_homo=True, allow_clip=True):
     return matrix
 
 
+# TODO: maybe we can delete this function
 def prepare_vector(vector, is_batch=True, is_homo=True, to_matrix=True):
-    """Make vector to target shape.
+    """Make the give **coordinate** vector to target shape.
+
+    - is_batch: If true, the vector will be shape as ``[bz, ...]``, and if the
+        dimension of ``vector`` is 1, it will be unsqueezed to ``[1, ]``. If
+        false, the vector will be squeezed to only one dimension.
+    - is_homo: If true, return in homogeneous coordinates (the number of
+        element in the last dimension is 4). Otherwise, will clip to 3.
+    - to_matrix: This parameter only work when is_homo = True.
+        Convert the vector size as [4, ] or [N, 4] to [4, 1] and [N, 4, 1]
+        in order to support matrix multiply with a homogeneous
+        transformation matrix.
 
     Args:
+        vector (torch.Tensor): The vector to reshape. Shape like [bz, ...]
+        is_batch (bool): If True, will return with batch dimension. Defaults
+            to True.
+        is_homo (bool): If True, will return in homogeneous coordinates.
+            Defaults to True.
         to_matrix (bool): This parameter only work when is_homo = True.
             Convert the vector size as [4, ] or [N, 4] to [4, 1] and [N, 4, 1]
             in order to support matrix multiply with a homogeneous
             transformation matrix.
     """
     vector = vector.clone()
-    assert vector.ndim in [1, 2]
     assert vector.shape[-1] in [3, 4]
 
     if is_batch:
@@ -260,7 +281,7 @@ def prepare_vector(vector, is_batch=True, is_homo=True, to_matrix=True):
     else:
         # squeeze vector and remove 'batch_size' dimension
         assert vector.ndim == 1 or vector.shape[0] == 1, (
-            'prepare_vector with \'is_batch=True\' only support input shape '
+            'prepare_vector with \'is_batch=False\' only support input shape '
             f'as [1, n] or [n, ], but receive matrix shape as {vector.shape}')
         vector = vector.squeeze()
 
