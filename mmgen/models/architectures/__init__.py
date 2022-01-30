@@ -5,6 +5,7 @@ from .cyclegan import ResnetGenerator
 from .dcgan import DCGANDiscriminator, DCGANGenerator
 from .ddpm import DenoisingUnet
 from .fid_inception import InceptionV3
+from .graf import GRAFDiscriminator, GRAFGenerator
 from .lpips import PerceptualLoss
 from .lsgan import LSGANDiscriminator, LSGANGenerator
 from .nerf import NeRFRenderer
@@ -37,5 +38,5 @@ __all__ = [
     'LSGANDiscriminator', 'LSGANGenerator', 'ProjDiscriminator',
     'SNGANGenerator', 'BigGANGenerator', 'SNConvModule', 'BigGANDiscriminator',
     'BigGANDeepGenerator', 'BigGANDeepDiscriminator', 'DenoisingUnet',
-    'NeRFRenderer'
+    'NeRFRenderer', 'GRAFDiscriminator', 'GRAFGenerator'
 ]

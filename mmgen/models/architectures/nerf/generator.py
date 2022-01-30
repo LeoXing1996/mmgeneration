@@ -22,6 +22,9 @@ class NeRFRenderer(nn.Module):
         input_ch_views (int): Input channels of view ?
         skips (list[int]):
         use_viewdirs (bool): Whether use camera view and directions
+        input_ch_add (int, optional): The additional channels of the inputs
+        input_ch_view_add (int, opptional): The additional channels of the view
+            inputs
     """
 
     def __init__(self,
@@ -34,12 +37,16 @@ class NeRFRenderer(nn.Module):
                  rgb_act_cfg=dict(type='Sigmoid'),
                  use_viewdirs=True,
                  pose_embedding=None,
-                 points_embedding=None):
+                 points_embedding=None,
+                 input_ch_add=None,
+                 input_ch_views_add=None):
         super().__init__()
         self.D = num_layers
         self.W = base_channels
         self.input_ch = input_ch
         self.input_ch_views = input_ch_views
+        self.input_ch_add = input_ch_add
+        self.input_ch_views_add = input_ch_views_add
         self.skips = skips
         self.use_viewdirs = use_viewdirs
 
@@ -47,11 +54,16 @@ class NeRFRenderer(nn.Module):
         if pose_embedding and self.use_viewdirs:
             self.pose_embedding = NeRFPositionalEmbedding(**pose_embedding)
             input_ch_views *= self.pose_embedding.embedding_factor
+            if input_ch_views_add is not None:
+                input_ch_views += input_ch_views_add
         else:
             self.pose_embedding = None
+
         if points_embedding:
             self.points_embedding = NeRFPositionalEmbedding(**points_embedding)
             input_ch *= self.points_embedding.embedding_factor
+            if input_ch_add is not None:
+                input_ch += input_ch_add
         else:
             self.points_embedding = None
 
@@ -81,12 +93,18 @@ class NeRFRenderer(nn.Module):
 
         self.init_weights(pretrained=None, strict=True)
 
-    def forward(self, points, views=None):
+    def forward(self,
+                points,
+                views=None,
+                inp_add_feat=None,
+                view_add_feat=None):
         """ Forward function.
         Args:
             points (torch.Tensor): Shape as [n_points', n_samples, 4]
             views (torch.Tensor): Shape as [n_points', n_samples, 4]
-            chunk: batch chunk
+            inp_add_feat (torch.Tensor): Shape like [n_points', dim]
+            view_add_feat (torch.Tensor): Shape like [n_points', dim]
+
         n_points' for mini-n-points
 
         Returns:
@@ -96,10 +114,16 @@ class NeRFRenderer(nn.Module):
             views = flatten_and_clip_input(views)
             if self.pose_embedding:
                 views = self.pose_embedding(views)
+            # add additional feat if need
+            if view_add_feat is not None:
+                views = torch.cat([views, view_add_feat], dim=1)
 
         points = flatten_and_clip_input(points)
         if self.points_embedding:
             points = self.points_embedding(points)
+            # add additional feat if need
+            if inp_add_feat is not None:
+                points = torch.cat([points, inp_add_feat], dim=1)
 
         h = points
         for i in range(len(self.pts_linears)):
