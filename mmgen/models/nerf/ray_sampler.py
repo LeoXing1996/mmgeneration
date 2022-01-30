@@ -151,18 +151,20 @@ class RaySampler(object):
     def sample_rays(self, batch_size=1, image=None, *args, **kwargs):
         """
         Args:
-            plane: [N, 3] or [N, 4]
-            image: [3, H, W]
+            image: [N, 3, H, W]
             batch_size (int, optional): Batch size. If ``image`` is given,
-                batch size of ``image`` must consistency with ``batch_size``.
-                Defaults to 1.
+                batch size of ``image`` will be used and ``batch_size`` will
+                be ignored.  Defaults to 1.
+            device (str, optional): The target device to move to. If ``image``
+                is give, device of ``image`` will be used and ``device`` will
+                be ignored. Defaults to None.
+
             we assert H*W == N
         """
         if image is not None:
-            assert image.shape[0] == batch_size, (
-                'Batch size of the given image must be consistency with '
-                f'\'batch_size\', but receive \'{image.shape[0]}\' and '
-                f'\'{batch_size}\'')
+            # ignore batch_size if image is given
+            batch_size = image.shape[0]
+            # device = image.device
 
         # init plane
         plane = self.sample_plane_full(batch_size)
@@ -311,7 +313,7 @@ class FlexGridRaySampler(RaySampler):
             torch.linspace(-1, 1, self.N_samples_sqrt),
             torch.linspace(-1, 1, self.N_samples_sqrt)
         ])
-        coords = torch.cat([w[..., None], h[..., None]], dim=2)
+        coords = torch.cat([h[..., None], w[..., None]], dim=2)
         return coords
 
     def _prepare_for_grid_sample(self, tensor):
@@ -362,9 +364,11 @@ class FlexGridRaySampler(RaySampler):
         target_shape[0] = batch_size
 
         if self.random_scale:
+            # # NOTE: just for debug
+            # np.random.seed(0)
             scale = np.random.uniform(
                 self.curr_min_scale, self.max_scale, size=target_shape)
-            base_plane = base_plane
+            base_plane = base_plane * scale[..., None]
         else:
             scale = 1
 
@@ -376,10 +380,20 @@ class FlexGridRaySampler(RaySampler):
             w_offset = np.random.uniform(
                 0, max_offset, size=target_shape) * (
                     np.random.randint(2, size=target_shape) - 0.5) * 2
+
+            # # NOTE: just for debug
+            # np.random.seed(0)
+            # h_offset = -np.random.uniform(
+            #     0, max_offset, size=target_shape) * (
+            #         np.random.randint(2, size=target_shape) - 0.5) * 2
+            # np.random.seed(0)
+            # w_offset = -np.random.uniform(
+            #     0, max_offset, size=target_shape) * (
+            #         np.random.randint(2, size=target_shape) - 0.5) * 2
             base_plane[..., 0] += h_offset
             base_plane[..., 1] += w_offset
 
-        return base_plane
+        return base_plane.type(torch.float32)
 
     def _sample_points_train(self, plane, coords):
         """Sample points on plane with given coordinates.

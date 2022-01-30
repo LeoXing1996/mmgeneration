@@ -32,7 +32,7 @@ class NeRFRaySampleHook(Hook, metaclass=ABCMeta):
 
     @abstractmethod
     def _update_ray_sampler(self, ray_sampler, curr_iter):
-        """Update the ray sampler.
+        """Update the ray sampler. Implemented by subclasses.
 
         Args:
             ray_sampler (object): The ray sampler to be updated.
