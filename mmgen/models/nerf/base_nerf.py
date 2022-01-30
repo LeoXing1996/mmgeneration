@@ -9,7 +9,7 @@ import torch.nn as nn
 
 from mmgen.models import MODELS
 from mmgen.models.architectures.common import get_module_device
-from .camera import Camera
+from mmgen.models.builder import build_module
 from .util import inverse_transform_sampling
 
 
@@ -27,9 +27,15 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
                  n_importance=None,
                  num_samples_per_ray=64,
                  white_background=False):
-        super().__init__()
+        # do not use ``super().__init__()`` here, avoid error in imultiple
+        # inheritance
+        nn.Module.__init__(self)
+
         self._camera_cfg = deepcopy(camera)
-        self.camera = Camera(**self._camera_cfg)
+        # set default type
+        if 'type' not in self._camera_cfg:
+            self._camera_cfg['type'] = 'PoseCamera'
+        self.camera = build_module(self._camera_cfg)
 
         self.n_importance = n_importance
         self.n_samples = num_samples_per_ray
@@ -184,6 +190,8 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         return weights
 
     def volume_rendering(self, raw_output, z_vals, ray_vectors, is_fine=False):
+        # TODO: support noise in volume rendering
+
         # NOTE: we should consist the name here
         rgbs, sigmas = raw_output['rgbs'], raw_output['alphas']
 
@@ -246,7 +254,15 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         return points_fine, z_vals_fine
 
     def forward_network_batchify(self, data_dict, network, **kwargs):
-        """Forward the network in chunk."""
+        """Forward the network in chunk. All tensors in ``data_dict`` are shape
+        like `[n_points, n_samples, n]`.
+
+        Args:
+            data_dict (dict): Dict of data feed to the network.
+            network (torch.nn.Module): The network used to forward.
+
+        Returns:
+        """
         data_keys = list(data_dict.keys())
         # 0. save input shape
         n_points, n_samples, _ = data_dict[data_keys[0]].shape
