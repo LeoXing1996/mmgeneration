@@ -335,12 +335,13 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
                 passed to different methods.
         """
         mode = kwargs.pop('mode', 'sampling')
-        if mode in ['sampling', 'reconstruction']:
-            # TODO: add random sample from pose
+        if mode == 'reconstruction':
             return self.reconstruction_step(data, **kwargs)
-
-        raise NotImplementedError('Other specific testing functions should'
-                                  ' be implemented by the sub-classes.')
+        elif mode == 'sampling':
+            return self.sample_from_noise(data, **kwargs)
+        else:
+            raise NotImplementedError('Other specific testing functions should'
+                                      ' be implemented by the sub-classes.')
 
     def forward(self, data, return_loss=False, **kwargs):
         """Forward function.

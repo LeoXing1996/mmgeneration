@@ -3,6 +3,7 @@ import os.path as osp
 from copy import deepcopy
 
 import mmcv
+import numpy as np
 import torch
 from mmcv.parallel import is_module_wrapper
 from mmcv.runner import HOOKS, Hook
@@ -114,7 +115,7 @@ class VisualizeUnconditionalSamples(Hook):
 
 # TODO: maybe rename to visNerf...
 @HOOKS.register_module()
-class VisualizeReconstructionSamples(Hook):
+class VisualizeNeRFSamples(Hook):
     """Visualization hook for NeRF models.
 
     In this hook, we use the official api `save_image` in torchvision to save
@@ -144,9 +145,34 @@ class VisualizeReconstructionSamples(Hook):
             function. Defaults to None.
     """
 
+    # TODO: support this in args
+    _color_map = [
+        [0, 0, 0],  # 0.000
+        [0, 0, 255],  # 0.114
+        [255, 0, 0],  # 0.299
+        [255, 0, 255],  # 0.413
+        [0, 255, 0],  # 0.587
+        [0, 255, 255],  # 0.701
+        [255, 255, 0],  # 0.886
+        [255, 255, 255],  # 1.000
+        [255, 255, 255],  # 1.000
+    ]
+
+    _color_map_bincenters = [
+        0.0,
+        0.114,
+        0.299,
+        0.413,
+        0.587,
+        0.701,
+        0.886,
+        1.000,
+        2.000,  # doesn't make a difference, just strictly higher than 1
+    ]
+
     def __init__(self,
                  output_dir,
-                 dataloader,
+                 dataloader=None,
                  dist=True,
                  num_samples=16,
                  interval=-1,
@@ -225,6 +251,146 @@ class VisualizeReconstructionSamples(Hook):
             return iteration == runner_iter
         return False
 
+    def vis_depth_color(self, depth):
+        """Visualize depth map with color map.
+        Args:
+            depth (torch.Tensor): Depth map. Shape like ``[bz, n_points, 1]``.
+
+        Returns:
+            torch.Tensor: Colored depth map. Shape like ``[bz, n_points, 3]``.
+                Range in ``[0, 1]``.
+        """
+        # TODO: support scale
+        cmap_center = torch.FloatTensor(self._color_map_bincenters)
+        cmap = torch.FloatTensor(self._color_map)
+        return self._vis_color_map(depth, cmap_center, cmap)
+
+    def vis_depth(self, depth):
+        """Visualize depth map with in gray mode.
+        Args:
+            depth (torch.Tensor): Depth map. Shape like ``[bz, n_points, 1]``.
+
+        Returns:
+            torch.Tensor: Gray scale map. Shape like ``[bz, n_points, 3]``.
+                Range in ``[0, 1]``.
+        """
+        return self._vis_gray_img(depth)
+
+    def vis_img(self, img):
+        """Visualization function for images.
+
+        Args:
+            img (torch.Tensor): Images to visualization. Shape like
+                ``[batch_size, n_points, 3]``.
+        Returns:
+            torch.Tensor: Tensor shape like ``[batch_size, n_points, 3]`` and
+                range in ``[0, 1]``.
+        """
+        assert img.shape[2] == 3, (
+            'The input image must shape as \'[batch_size, n_points, 3]\', but '
+            f'receive \'{img.shape}\'.')
+
+        if self.rerange:
+            img = (img + 1) / 2
+        if self.bgr2rgb:
+            img = img[..., [2, 1, 0]]
+        img = img.clamp_(0, 1)
+        return img
+
+    def vis_disp(self, disp):
+        """Visualization function for disparity map.
+        Args:
+            disp (torch.Tensor): Disparity map to visualization. Shape like
+                ``[batch_size, n_points, 1]`` or ``[batch_size, n_points]``.
+
+        Returns:
+            torch.Tensor: Tensor range in ``[0, 1]``.
+        """
+        return self._vis_gray_img(disp)
+
+    @staticmethod
+    def _vis_gray_img(img):
+        """Visualize single channel gray scale image.
+
+        Args:
+            img (torch.Tensor):
+        """
+        img = img.squeeze()
+        assert img.ndim == 2, (
+            'Input gray scale image should shape as '
+            '\'[batch_size, n_points]\' or \'[batch_size, n_points, 1]\', but '
+            f'receive \'{img.shape}\'.')
+        img_ = img.squeeze()[..., None]
+        img_ = img_.clamp_(0, 1)
+        img_ = torch.cat([img_] * 3, dim=-1)
+        return img_
+
+    @staticmethod
+    def _vis_color_map(img, color_map_bin_center, color_map, scale=None):
+        """Visualize image with given color map and center.
+        Args:
+            image (torch.Tensor): Single channel image. Shape like
+                ``[batch_size, n_points, 1]`` or ``[batch_size, n_points]``.
+            scale (float, optional): Scale factor to norm the depth map to
+                ``[0, 1]``. If not passed, the max value in the given depth
+                map will be used. Defaults to None.
+
+        Returns:
+            torch.Tensor: Colored depth map. Shape like ``[bz, n_points, 3]``.
+                Range in ``[0, 1]``.
+        """
+        batch_size = img.shape[0]
+
+        # convert to torch.Tensor
+        if scale is None:
+            scale = img.view(batch_size, -1).max(dim=1)[0] + 1e-8
+        elif isinstance(scale, (float, int)):
+            scale = torch.FloatTensor([float])
+        elif isinstance(scale, np.ndarray):
+            scale = torch.from_numpy(scale)
+        else:
+            assert isinstance(scale, torch.Tensor), (
+                'Only support \'int\', \'float\', \'np.ndarray\', '
+                '\'torch.Tensor\' and \'None\' for \'scale\', but receive '
+                f'{type(scale)}.')
+
+        # shape checking for torch.Tensor
+        scale_old = scale.clone()  # save for error raising
+        scale = scale.squeeze()
+        if scale.squeeze().shape == (batch_size, ):
+            scale = scale[:, None]
+        elif scale.squeeze().shape == ():
+            scale = scale[None, None].repeat(batch_size, 1)
+        else:
+            raise ValueError('Cannot convert input \'scale\' '
+                             f'([{scale_old.shape}]) to [{batch_size}, 1].')
+
+        # norm and reshapt to [batch_size, n_points, 1]
+        img_norm = img.view(batch_size, -1)
+        img_norm = (img_norm / scale).clamp(0, 1)[..., None]
+
+        # [bz, n_points, 1]
+        try:
+            higher_bin = torch.searchsorted(
+                color_map_bin_center, img_norm, right=True)
+            higher_bin_value = color_map_bin_center[higher_bin]
+            lower_bin_value = color_map_bin_center[higher_bin - 1]
+        except Exception:
+            import ipdb
+            ipdb.set_trace()
+
+        higher_color_value = color_map[higher_bin].squeeze()
+        lower_color_value = color_map[higher_bin - 1].squeeze()
+
+        alphas = (img_norm - lower_bin_value) / (
+            higher_bin_value - lower_bin_value)
+
+        colors = lower_color_value * (1 - alphas) + higher_color_value * alphas
+
+        # convert colors to tensor and rescale to [0, 1]
+        colors = (colors / 255.).clamp_(0, 1)
+        return colors
+
     @torch.no_grad()
     def get_results(self, runner):
 
@@ -277,3 +443,94 @@ class VisualizeReconstructionSamples(Hook):
 
         # train mode
         runner.model.train()
+
+
+@HOOKS.register_module()
+class GRAFVisHook(VisualizeNeRFSamples):
+
+    _default_vis_key_mapping = dict(
+        rgb_final='img', depth_final='depth_color', disp_final='disp')
+    _allowed_vis_type = ['depth', 'depth_color', 'img', 'disp']
+
+    def __init__(self,
+                 fixed_noise=True,
+                 vis_keys_mapping=None,
+                 *args,
+                 **kwargs):
+
+        super().__init__(*args, **kwargs)
+
+        # the sampling noise will be initialized by the first sampling.
+        self.sampling_noise = None
+
+        if vis_keys_mapping is not None:
+            assert isinstance(
+                vis_keys_mapping,
+                dict), ('\'vis_key_mapping\' must be a dict, but receive '
+                        f'{type(self.vis_key_mapping)}.')
+            self.vis_keys_mapping = vis_keys_mapping
+        else:
+            self.vis_keys_mapping = self._default_vis_key_mapping
+
+        # vis type checking
+        for vis_type in self.vis_keys_mapping.values():
+            assert vis_type in self._allowed_vis_type, (
+                'Only support vislization type in '
+                f'\'{self._allowed_vis_type}\', but receive \'{vis_type}\'.')
+
+        self.fixed_noise = fixed_noise
+
+    def _save_image(self, outputs_dict, runner):
+        """"""
+        vis_keys = list(outputs_dict.keys())
+        num_samples = outputs_dict[vis_keys[0]].shape[0]
+        num_samples = min(num_samples, self.num_samples)
+        samples = []
+        for idx in range(num_samples):
+            for k in vis_keys:
+                samples.append(outputs_dict[k][idx])
+
+        mmcv.mkdir_or_exist(osp.join(runner.work_dir, self.output_dir))
+
+        filename = self.filename_tmpl.format(runner.iter + 1)
+
+        save_image(
+            samples,
+            osp.join(runner.work_dir, self.output_dir, filename),
+            nrow=self.nrow * len(vis_keys),
+            padding=self.padding)
+
+    def after_train_iter(self, runner):
+        """The behavior after each train iteration.
+
+        Args:
+            runner (object): The runner.
+        """
+        if not self.every_n_iters(runner, self.interval):
+            return
+        # eval mode
+        runner.model.eval()
+        # no grad in sampling
+        with torch.no_grad():
+            outputs_dict = runner.model(
+                self.sampling_noise,
+                return_loss=False,
+                num_batches=self.num_samples,
+                return_noise=True,
+                **self.kwargs)
+            noise_ = outputs_dict['noise_batch']
+
+        # initialize samling noise with the first returned noise
+        if self.sampling_noise is None and self.fixed_noise:
+            self.sampling_noise = noise_
+            # TODO: support sampling pose
+            self.sampling_pose = None
+
+        vis_dict = dict()
+        for k, v in self.vis_keys_mapping.items():
+            img = outputs_dict[k]
+            vis_func = getattr(self, f'vis_{v}')
+            vis_dict[k] = vis_func(img.cpu())
+        vis_dict = self._unflatten_images(runner, vis_dict)
+
+        self._save_image(vis_dict, runner)
