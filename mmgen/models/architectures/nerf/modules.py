@@ -3,6 +3,7 @@ from functools import partial
 
 import torch
 import torch.nn as nn
+from mmcv.cnn import ACTIVATION_LAYERS
 from numpy import pi
 
 from mmgen.models.builder import MODULES
@@ -77,6 +78,74 @@ class NeRFPositionalEmbedding(nn.Module):
                      f'ignore_pi={self.ignore_pi}, '
                      f'embedding_factor={self.embedding_factor})')
         return repr_str
+
+
+@ACTIVATION_LAYERS.register_module()
+class NoisyReLU(nn.Module):
+    r"""ReLU activation function with gaussian noise. In training mode,
+
+    .. math::
+
+    NoisyReLU(x) = ReLU(x) + z, z \sim N(0, raw_std)
+
+    And in evaluation mode, noise is not used and perform same as standard ReLU
+    activation.
+
+    And standard deviation of the noise can be modified by
+    ``self.update_noise()``. (This operation cannot be done by hooks
+    because we may want to change noise scale between discriminator updating
+    and generation updating.)
+
+    Args:
+        noise_std (float | int, optional): The initial standard deviation of
+            the noise, must be larger than or equals to `0`. Defaults to `1`.
+        inplace (bool, optional): Whether use inplace version of ReLU. Defaults
+            to ``False``.
+        end_iteration (int, optional): Then end iteration of the noise
+            decreasing operation. If less than or equal to 0, noise decreasing
+            will not be performed. Defaults to `-1`.
+    """
+
+    def __init__(self, noise_std=1, inplace=False, end_iteration=-1):
+        super().__init__()
+        self.act = nn.ReLU(inplace=inplace)
+
+        assert isinstance(
+            noise_std,
+            (int, float)), ('\'noise_std\' must be int or float, but receive '
+                            f'\'{type(noise_std)}\'.')
+        assert noise_std >= 0, (
+            '\'noise_std\' must be larger than or equals to \'0\', but '
+            f'receive \'{noise_std}\'.')
+        self._init_noise_std = noise_std
+        self.end_iter = end_iteration
+        self.noise_std = noise_std if end_iteration > 0 else 0
+
+    def update_noise(self, curr_iter):
+        """Update the scale of noise.
+
+        Args:
+            curr_iter (int): Current iteration.
+        """
+        # do not decreasing (end_iter < 0 <= curr_iter) or has finished
+        if self.end_iter <= curr_iter:
+            self.noise_std = 0
+        else:
+            self.noise_std = self._init_noise_std - \
+                self._init_noise_std / self.end_iter * curr_iter
+
+    def forward(self, x):
+        """Forward function.
+
+        Args:
+            x (torch.Tensor): The input tensor.
+
+        Returns:
+            torch.Tensor: The tensor after activation.
+        """
+        if self.training:
+            return self.act(x + torch.randn_like(x) * self.noise_std)
+        return self.act(x)
 
 
 def flatten_and_clip_input(input):

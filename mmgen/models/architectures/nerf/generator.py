@@ -1,7 +1,8 @@
 # Copyright (c) OpenMMLab. All rights reserved.
+from copy import deepcopy
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from mmcv.cnn import xavier_init
 from mmcv.cnn.bricks import build_activation_layer
 from mmcv.runner import load_checkpoint
@@ -25,6 +26,10 @@ class NeRFRenderer(nn.Module):
         input_ch_add (int, optional): The additional channels of the inputs
         input_ch_view_add (int, opptional): The additional channels of the view
             inputs
+        use_inplace_act (bool, optional): Whether use inplace activation to
+            save memory or not. If passed, will set as default for
+            ``model_act_cfg`` ``alpha_act_cfg`` and ``rgb_act_cfg``. Defaults
+            to ``None``.
     """
 
     def __init__(self,
@@ -35,11 +40,13 @@ class NeRFRenderer(nn.Module):
                  skips=[4],
                  alpha_act_cfg=dict(type='ReLU'),
                  rgb_act_cfg=dict(type='Sigmoid'),
+                 model_act_act=dict(type='ReLU'),
                  use_viewdirs=True,
                  pose_embedding=None,
                  points_embedding=None,
                  input_ch_add=None,
-                 input_ch_views_add=None):
+                 input_ch_views_add=None,
+                 use_inplace_act=None):
         super().__init__()
         self.D = num_layers
         self.W = base_channels
@@ -67,8 +74,22 @@ class NeRFRenderer(nn.Module):
         else:
             self.points_embedding = None
 
-        self.alpha_act = build_activation_layer(alpha_act_cfg)
-        self.rgb_act = build_activation_layer(rgb_act_cfg)
+        alpha_act_cfg_ = deepcopy(alpha_act_cfg)
+        rgb_act_cfg_ = deepcopy(rgb_act_cfg)
+        model_act_cfg_ = deepcopy(model_act_act)
+
+        if use_inplace_act is not None:
+            for act_cfg_ in [alpha_act_cfg_, rgb_act_cfg_, model_act_cfg_]:
+
+                if act_cfg_['type'] not in [
+                        'Tanh', 'PReLU', 'Sigmoid', 'HSigmoid', 'Swish'
+                ]:
+
+                    act_cfg_.setdefault('inplace', use_inplace_act)
+
+        self.alpha_act = build_activation_layer(alpha_act_cfg_)
+        self.rgb_act = build_activation_layer(rgb_act_cfg_)
+        self.model_act = build_activation_layer(model_act_cfg_)
 
         pts_linears = [nn.Linear(input_ch, base_channels)]
         for idx in range(num_layers - 1):
@@ -128,7 +149,7 @@ class NeRFRenderer(nn.Module):
         h = points
         for i in range(len(self.pts_linears)):
             h = self.pts_linears[i](h)
-            h = F.relu(h)
+            h = self.model_act(h)
             if i in self.skips:
                 h = torch.cat([points, h], -1)
 
@@ -141,7 +162,7 @@ class NeRFRenderer(nn.Module):
 
             for i in range(len(self.views_linears)):
                 h = self.views_linears[i](h)
-                h = F.relu(h)
+                h = self.model_act(h)
 
             rgb = self.rgb_linear(h)
         else:
