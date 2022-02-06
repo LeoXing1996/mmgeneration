@@ -1,11 +1,13 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 from copy import deepcopy
 
+import mmcv
 import torch
 import torch.nn as nn
 from mmcv.cnn import xavier_init
 from mmcv.cnn.bricks import build_activation_layer
 from mmcv.runner import load_checkpoint
+from mmcv.runner.checkpoint import _load_checkpoint_with_prefix
 
 from mmgen.models.builder import MODULES
 from mmgen.utils import get_root_logger
@@ -30,6 +32,13 @@ class NeRFRenderer(nn.Module):
             save memory or not. If passed, will set as default for
             ``model_act_cfg`` ``alpha_act_cfg`` and ``rgb_act_cfg``. Defaults
             to ``None``.
+        init_cfg (string, optional): Config for weight initialization. If
+            ``default`` is passed, Pytorch's default initialize method will be
+            used. Defaults to ``None``.
+        pretrained (str | dict, optional): Path for the pretrained model or
+            dict containing information for pretained models whose necessary
+            key is 'ckpt_path'. Besides, you can also provide 'prefix' to load
+            the generator part from the whole state dict. Defaults to None.
     """
 
     def __init__(self,
@@ -46,7 +55,9 @@ class NeRFRenderer(nn.Module):
                  points_embedding=None,
                  input_ch_add=None,
                  input_ch_views_add=None,
-                 use_inplace_act=None):
+                 use_inplace_act=None,
+                 pretrained=None,
+                 init_type=None):
         super().__init__()
         self.D = num_layers
         self.W = base_channels
@@ -112,7 +123,8 @@ class NeRFRenderer(nn.Module):
         else:
             self.output_linear = nn.Linear(base_channels, 4)
 
-        self.init_weights(pretrained=None, strict=True)
+        self.init_type = init_type
+        self.init_weights(pretrained=pretrained, strict=True)
 
     def forward(self,
                 points,
@@ -186,12 +198,27 @@ class NeRFRenderer(nn.Module):
         if isinstance(pretrained, str):
             logger = get_root_logger()
             load_checkpoint(self, pretrained, strict=strict, logger=logger)
+        elif isinstance(pretrained, dict):
+            ckpt_path = pretrained.get('ckpt_path', None)
+            assert ckpt_path is not None
+            prefix = pretrained.get('prefix', '')
+            map_location = pretrained.get('map_location', 'cpu')
+            strict = pretrained.get('strict', True)
+            state_dict = _load_checkpoint_with_prefix(prefix, ckpt_path,
+                                                      map_location)
+            self.load_state_dict(state_dict, strict=strict)
+            mmcv.print_log(f'Load pretrained model from {ckpt_path}', 'mmgen')
         elif pretrained is None:
-            # weight: xavier_uniform
-            # biase: zero
-            for _, m in self.named_modules():
-                if isinstance(m, nn.Linear):
-                    xavier_init(m, bias=0, distribution='uniform')
+            if self.init_type is None:
+                # weight: xavier_uniform
+                # biase: zero
+                for _, m in self.named_modules():
+                    if isinstance(m, nn.Linear):
+                        xavier_init(m, bias=0, distribution='uniform')
+            else:
+                assert self.init_type.upper() == 'DEFAULT', (
+                    'Only support \'None\' or \'default\' for \'init_type\', '
+                    f'but receive \'{self.init_type}\'.')
         else:
-            raise TypeError("'pretrained' must be a str or None. "
+            raise TypeError("'pretrained' must be a str, dict or None. "
                             f'But received {type(pretrained)}.')

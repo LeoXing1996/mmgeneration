@@ -61,13 +61,7 @@ class GRAFGenerator(nn.Module):
         self.init_type = init_type
         self._warning_raised = False
 
-    def forward(
-            self,
-            points,
-            views=None,
-            # num_batches=None,
-            noise=None,
-            return_noise=False):
+    def forward(self, points, views=None, noise=None, return_noise=False):
         """Forward function.
 
         Args:
