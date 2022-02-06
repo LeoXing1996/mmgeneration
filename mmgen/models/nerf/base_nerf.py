@@ -211,7 +211,7 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         # [bz, n_points]
         # TODO: here we should use more method to avoid nan than official code
         # in the first around of the training, weights = 0 makes
-        # disp_final to none
+        # disp_final to nan
         disp_map = 1. / torch.max(depth_map / torch.sum(weights, -1),
                                   1e-10 * torch.ones_like(depth_map))
         # [bz, n_points]
@@ -301,6 +301,17 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         for k in raw_output.keys():
             raw_output[k] = raw_output[k].reshape([n_points, n_samples, -1])
         return raw_output
+
+    def update_noise(self, model, curr_iter):
+        """Update noise used in model.
+
+        Args:
+            model (nn.Module): Model to decreasing noise.
+            curr_iter (int): Current iteration.
+        """
+        for _, m in model.named_modules():
+            if hasattr(m, 'update_noise'):
+                m.update_noise(curr_iter)
 
     @staticmethod
     def concatenate_dict(list_of_dict):
