@@ -370,14 +370,10 @@ class VisualizeNeRFSamples(Hook):
         img_norm = (img_norm / scale).clamp(0, 1)[..., None]
 
         # [bz, n_points, 1]
-        try:
-            higher_bin = torch.searchsorted(
-                color_map_bin_center, img_norm, right=True)
-            higher_bin_value = color_map_bin_center[higher_bin]
-            lower_bin_value = color_map_bin_center[higher_bin - 1]
-        except Exception:
-            import ipdb
-            ipdb.set_trace()
+        higher_bin = torch.searchsorted(
+            color_map_bin_center, img_norm, right=True)
+        higher_bin_value = color_map_bin_center[higher_bin]
+        lower_bin_value = color_map_bin_center[higher_bin - 1]
 
         higher_color_value = color_map[higher_bin].squeeze()
         lower_color_value = color_map[higher_bin - 1].squeeze()
@@ -449,8 +445,17 @@ class VisualizeNeRFSamples(Hook):
 class GRAFVisHook(VisualizeNeRFSamples):
 
     _default_vis_key_mapping = dict(
-        rgb_final='img', depth_final='depth_color', disp_final='disp')
+        rgb_final='img',
+        depth_final='depth_color',
+        disp_final='disp',
+        real_imgs='img',
+        selected_pixels='img',
+        selected_mask='img')
     _allowed_vis_type = ['depth', 'depth_color', 'img', 'disp']
+    _buffer_keys = [
+        'selected_mask', 'selected_pixels', 'selected_pixels_alpha',
+        'real_imgs'
+    ]
 
     def __init__(self,
                  fixed_noise=True,
@@ -478,6 +483,9 @@ class GRAFVisHook(VisualizeNeRFSamples):
                 'Only support vislization type in '
                 f'\'{self._allowed_vis_type}\', but receive \'{vis_type}\'.')
 
+        # only vis buffer when need
+        self.get_buffer = any(
+            [k in self._buffer_keys for k in self.vis_keys_mapping])
         self.fixed_noise = fixed_noise
 
     def _save_image(self, outputs_dict, runner):
@@ -499,6 +507,36 @@ class GRAFVisHook(VisualizeNeRFSamples):
             osp.join(runner.work_dir, self.output_dir, filename),
             nrow=self.nrow * len(vis_keys),
             padding=self.padding)
+
+    def vis_buffer(self, runner):
+        """Visual buffer in model.results. This mainly have real images and
+        sampled points.
+
+        Args:
+            runner (object): The runner.
+
+        Returns:
+            dict: Vis dict
+        """
+        _model = runner.model.module if is_module_wrapper(
+            runner.model) else runner.model
+
+        buffer = runner.outputs['results']
+        real_imgs = buffer['real_imgs'].cpu()
+        points = buffer['points_selected'].cpu()
+        vis_dict = _model.camera.ray_sampler.vis_pixels_on_image(
+            real_imgs, points)
+
+        vis_dict = {
+            k: v.cpu()
+            for k, v in vis_dict.items() if k in self.vis_keys_mapping
+        }
+
+        # TODO: maybe we vis this is a better way
+        if 'real_imgs' in self.vis_keys_mapping:
+            vis_dict['real_imgs'] = real_imgs.cpu()
+
+        return vis_dict
 
     def after_train_iter(self, runner):
         """The behavior after each train iteration.
@@ -528,9 +566,18 @@ class GRAFVisHook(VisualizeNeRFSamples):
 
         vis_dict = dict()
         for k, v in self.vis_keys_mapping.items():
+            # skip buffer imgs
+            if k in self._buffer_keys:
+                continue
             img = outputs_dict[k]
             vis_func = getattr(self, f'vis_{v}')
             vis_dict[k] = vis_func(img.cpu())
         vis_dict = self._unflatten_images(runner, vis_dict)
+
+        if self.get_buffer:
+            vis_dict.update(self.vis_buffer(runner))
+
+        # train mode
+        runner.model.train()
 
         self._save_image(vis_dict, runner)
