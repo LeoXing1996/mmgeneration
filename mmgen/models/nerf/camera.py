@@ -83,7 +83,8 @@ class Camera(object):
 
     @property
     def n_points(self):
-        return self.ray_sampler.n_points
+        return self.ray_sampler.n_points \
+            if self.ray_sampler.training else self.H * self.W
 
     def _handle_single_range(self, edge, edge_range, name='edge'):
         """
@@ -271,16 +272,17 @@ class Camera(object):
         Returns:
             torch.Tensor: Coordinates converted to the camera coordinates.
         """
-        plane[...,
-              0] = (plane[..., 0] - self.camera_matrix[0, -1]) / self.focal
-        plane[...,
-              1] = (plane[..., 1] - self.camera_matrix[1, -1]) / self.focal
-        plane[..., 2] = -1
+        plane_camera = plane.clone()
+        plane_camera[..., 0] = (plane[..., 0] -
+                                self.camera_matrix[0, -1]) / self.focal
+        plane_camera[..., 1] = (plane[..., 1] -
+                                self.camera_matrix[1, -1]) / self.focal
+        plane_camera[..., 2] = -1
 
         if invert_y_axis:
-            plane[..., 1] = plane[..., 1] * -1
+            plane_camera[..., 1] = plane_camera[..., 1] * -1
 
-        return plane
+        return plane_camera
 
     def sample_z_vals(self,
                       noise,
@@ -363,6 +365,10 @@ class Camera(object):
                 'that \'plane\' and \'plane_world\' are not both None.')
         views = normalize_vector(rays)
 
+        # TODO: we should rename this:
+        # * rays actually means: points on the plane, or ray vector from camera
+        # to plane
+        # * views means the normalized ray vector
         return dict(views=views, rays=rays)
 
     def split_transform_matrix(self, transform_matrix):
@@ -426,7 +432,7 @@ class Camera(object):
         # sample points
         sample_dict = self.ray_sampler.sample_rays(
             batch_size=batch_size, image=real_img)
-        sample_dict['points_selected'] = self.plane_to_camera(
+        sample_dict['points_selected_camera'] = self.plane_to_camera(
             sample_dict['points_selected'], invert_y_axis=True)
 
         # prepare for camera2world matrix and pose
@@ -434,7 +440,7 @@ class Camera(object):
         sample_dict['camera_pose'] = camera_pose
 
         ray_dict = self.rays_to_world(camera_pose,
-                                      sample_dict['points_selected'],
+                                      sample_dict['points_selected_camera'],
                                       plane_world, camera2world)
 
         sample_dict.update(ray_dict)
@@ -530,9 +536,6 @@ class RandomPoseCamera(Camera):
             theta = gaussian_sampling(num_batches, **self.theta_dist)
             phi = gaussian_sampling(num_batches, **self.phi_dist)
         elif self.camera_sample_mode == 'spherical':
-            # NOTE: just for debug
-            np.random.seed(0)
-
             u = uniform_sampling(num_batches, **self.u_dist)
             v = uniform_sampling(num_batches, **self.v_dist)
             theta = 2 * np.pi * u
@@ -580,7 +583,7 @@ class RandomPoseCamera(Camera):
                 [camera_pose, torch.ones(num_batches, 1)], dim=-1)
 
         # repeat for each batch size and flatten
-        n_points = self.ray_sampler.n_points
+        n_points = self.n_points
         n_coors = self.num_coors
         camera2world = camera2world[:, None].repeat([1, n_points, 1, 1])
         camera_pose = camera_pose[:, None].repeat([1, n_points, 1])
@@ -606,7 +609,8 @@ class RandomPoseCamera(Camera):
         # sample points
         sample_dict = self.ray_sampler.sample_rays(
             batch_size=batch_size, image=real_img)
-        sample_dict['points_selected'] = self.plane_to_camera(
+
+        sample_dict['points_selected_camera'] = self.plane_to_camera(
             sample_dict['points_selected'], invert_y_axis=True)
 
         # get batch size from sample dict, because we may use batch size from
@@ -622,7 +626,7 @@ class RandomPoseCamera(Camera):
         # actually return a dict contains ray-vector and view vectors
         # maybe we should change name
         ray_dict = self.rays_to_world(camera_pose,
-                                      sample_dict['points_selected'],
+                                      sample_dict['points_selected_camera'],
                                       plane_world, camera2world)
 
         sample_dict.update(ray_dict)
@@ -634,8 +638,5 @@ class RandomPoseCamera(Camera):
             if device is not None:
                 v = v.to(device)
             sample_dict[k] = v
-
-        # if device is not None:
-        #     sample_dict = {k: v.to(device) for k, v in sample_dict.items()}
 
         return sample_dict
