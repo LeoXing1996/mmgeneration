@@ -38,12 +38,15 @@ class TestFullRaySampler:
             for key in ['real_pixels', 'selected_idx', 'points_selected']
         ])
         assert sample_dict['real_pixels'].shape == (2, 100, 3)
+        # print('real_pixels: ', type(sample_dict['real_pixels']))
         assert (sample_dict['real_pixels'] == self.image.permute(
             0, 2, 3, 1).reshape(2, 100, 3)).all()
         assert sample_dict['selected_idx'].shape == (2, 100)
-        assert (sample_dict['selected_idx'] == np.arange(0, 100)).all()
+        # print('selected_idx: ', type(sample_dict['selected_idx']))
+        assert (sample_dict['selected_idx'] == torch.arange(0, 100)).all()
         assert sample_dict['points_selected'].shape == (2, 100, 4)
         assert (sample_dict['points_selected'] == plane).all()
+        # print('points_selected: ', type(sample_dict['points_selected']))
 
         # test sample_ray without image + is_homo is False
         config = deepcopy(self.default_cfg)
@@ -51,7 +54,7 @@ class TestFullRaySampler:
         ray_sampler = build_module(config)
         sample_dict = ray_sampler.sample_rays(1)
         assert sample_dict['selected_idx'].shape == (1, 100)
-        assert (sample_dict['selected_idx'] == np.arange(0, 100)).all()
+        assert (sample_dict['selected_idx'] == torch.arange(0, 100)).all()
         assert sample_dict['points_selected'].shape == (1, 100, 3)
         assert (sample_dict['points_selected'] == plane[..., :3]).all()
         assert 'real_pixels' not in sample_dict
@@ -83,6 +86,16 @@ class TestRaySampler:
         assert sample_dict['real_pixels'].shape == (2, 10, 3)
         assert sample_dict['selected_idx'].shape == (2, 10)
         assert sample_dict['points_selected'].shape == (2, 10, 4)
+        # print('selected_idx: ', type(sample_dict['selected_idx']))
+        # print('points_selected: ', type(sample_dict['points_selected']))
+
+        # try to do this points_selection manually
+        points_selected_np = np.take_along_axis(
+            plane.repeat(2, 1, 1).numpy(),
+            sample_dict['selected_idx'].numpy()[..., None],
+            axis=1)
+        assert (points_selected_np == sample_dict['points_selected'].numpy()
+                ).all()
 
         # --- test under eval mode (sample all points) ---
         ray_sampler.eval()
@@ -96,7 +109,7 @@ class TestRaySampler:
         assert (sample_dict['real_pixels'] == self.image.permute(
             0, 2, 3, 1).reshape(2, 100, 3)).all()
         assert sample_dict['selected_idx'].shape == (2, 100)
-        assert (sample_dict['selected_idx'] == np.arange(0, 100)).all()
+        assert (sample_dict['selected_idx'] == torch.arange(0, 100)).all()
         assert sample_dict['points_selected'].shape == (2, 100, 4)
         assert (sample_dict['points_selected'] == plane).all()
 
