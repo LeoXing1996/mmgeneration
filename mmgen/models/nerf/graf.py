@@ -11,11 +11,6 @@ from ..builder import MODELS
 from ..common import set_requires_grad
 from .nerf import BaseNeRF
 
-# import sys
-
-# sys.path.append('/space0/home/xingzn/code/nerf/graf/')
-# sys.path.append('/space0/home/xingzn/code/nerf/graf/submodules')
-
 
 @MODELS.register_module()
 class GRAF(BaseNeRF, StaticUnconditionalGAN):
@@ -52,100 +47,6 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         if test_cfg is not None:
             self._parse_test_cfg()
 
-        # from graf.models.discriminator import Discriminator
-        # self.discriminator = Discriminator(imsize=32).cuda()
-        # self.nerf_off_kwargs = self.load_official_generator()
-        # self.nerf_off_kwargs[0]['network_fn']
-        # from torch.optim import RMSprop
-        # self.gen_opt = RMSprop(
-        #     self.nerf_off_kwargs[0]['network_fn'].parameters(),
-        #     lr=5e-4,
-        #     eps=1e-8,
-        #     weight_decay=0,
-        #     momentum=0,
-        #     alpha=0.99)
-
-        # state_dict = torch.load('/space0/home/xingzn/mmgen_dev/nerf/'
-        #                         'work_dirs/ckpts/GRAF-weights/'
-        #                         'carla_128_cvt.pt', map_location='cpu')
-        # # ignore disc
-        # state_dict = {k: v for k, v in state_dict.items() if 'disc' not in k}
-        # self.load_state_dict(state_dict, strict=False)
-
-    # def load_official_generator(self):
-    #     from GAN_stability.gan_training import config
-    #     from nerf_pytorch import run_nerf_mod
-    #     import os.path as op
-    #     from argparse import Namespace
-
-    #     config_root = '/space0/home/xingzn/code/nerf/graf/configs'
-    #     dataset = 'carla_128'
-    #     config_dict = dict(
-    #         carla_128='carla.yaml',
-    #         carla_256='carla_256.yaml',
-    #         carla_512='carla_512.yaml')
-    #     config_path = op.join(config_root, config_dict[dataset])
-    #     # 1. load default
-    #     config_dict = config.load_config(config_path,
-    #                                      op.join(config_root, 'default.yaml'))  # noqa
-
-    #     # 2. overwrite
-    #     config_nerf = Namespace(**config_dict['nerf'])
-    #     # Update config for NERF
-    #     config_nerf.chunk = min(
-    #         config_dict['training']['chunk'],
-    #         1024 * config_dict['training']['batch_size']
-    #     )  # let batch size for training with patches limit the maximal memory # noqa
-    #     config_nerf.netchunk = config_dict['training']['netchunk']
-    #     config_nerf.white_bkgd = config_dict['data']['white_bkgd']
-    #     config_nerf.feat_dim = config_dict['z_dist']['dim']
-    #     config_nerf.feat_dim_appearance = config_dict['z_dist'][
-    #         'dim_appearance']
-
-    #     nerf_off_args = run_nerf_mod.create_nerf(config_nerf)
-
-    #     return nerf_off_args
-
-    # def input_to_official(self, batch_size, device):
-    #     render_dict = self.camera.prepare_render_rays(
-    #         batch_size=batch_size, device=device)
-
-    #     # [batch_size, n_points, 3/4]
-    #     pose, views = render_dict['camera_pose'], render_dict['views']
-    #     pose = pose[..., :3].reshape(-1, 3)
-    #     views = views[..., :3].reshape(-1, 3)
-    #     rays_official = torch.cat([pose[None, ], views[None, ]], dim=0)
-    #     return rays_official
-
-    # def forward_official_render(self, batch_size, device, return_noise=False): # noqa
-    #     from nerf_pytorch.run_nerf_mod import render
-    #     nerf_kwargs = self.nerf_off_kwargs[0]
-
-    #     rays = self.input_to_official(batch_size, device)
-    #     noise = torch.randn(batch_size, 256).to(device)
-    #     nerf_kwargs['features'] = noise
-    #     rgb, disp, acc, extras = render(
-    #         128,
-    #         128,
-    #         self.camera.focal,
-    #         chunk=self.render_chunk,
-    #         rays=rays,
-    #         near=self.camera.near,
-    #         far=self.camera.far,
-    #         **nerf_kwargs)
-
-    #     def rays_to_output(x):
-    #         return x.view(len(x), -1) * 2 - 1
-
-    #     rgb = rays_to_output(rgb)
-    #     disp = rays_to_output(disp)
-    #     acc = rays_to_output(acc)
-
-    #     if return_noise:
-    #         output_dict = dict(rgb_final=rgb, disp_final=disp, acc_final=acc)
-    #         return output_dict
-    #     return rgb
-
     def _parse_train_cfg(self):
         """Parsing train config and set some attributes for training."""
         self.train_cfg = dict() if self.train_cfg is None else self.train_cfg
@@ -159,12 +60,6 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
             self._add_noise_to_z,
             noise_fn=getattr(self, f'{self.noise_cfg}_noise'))
 
-        # whether to use exponential moving average for training
-        self.use_ema = self.train_cfg.get('use_ema', False)
-        if self.use_ema:
-            # use deepcopy to guarantee the consistency
-            self.generator_ema = deepcopy(self.generator)
-
     def _parse_test_cfg(self):
         """Parsing test config and set some attributes for testing."""
         self.test_cfg = dict() if self.test_cfg is None else self.test_cfg
@@ -177,30 +72,25 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         self.use_ema = self.test_cfg.get('use_ema', False)
         if self.use_ema:
             # use deepcopy to guarantee the consistency
-            self.generator_ema = deepcopy(self.generator)
+            self.neural_renderer_ema = deepcopy(self.neural_renderer)
+            if hasattr(self, 'neural_renderer_fine'):
+                self.neural_renderer_fine_ema = deepcopy(
+                    self.neural_renderer_fine)
 
-    def forward_render(self,
-                       batch_size,
-                       model,
-                       noise=None,
-                       return_noise=False,
-                       **kwargs):
+    def forward_render(self, batch_size, model, return_noise=False, **kwargs):
         """Forward GRAF's NeRF Generator.
-
-        Args:
-            noise (torch.Tensor)
 
         Returns:
             dict: tensor are all shape like ``[bz, n_points, N]``.
         """
 
         device = get_module_device(self)
-        kwargs['return_noise'] = return_noise
         render_dict = self.camera.prepare_render_rays(
             batch_size=batch_size, device=device)
         camera_pose = render_dict['camera_pose']
         views = render_dict['views']
         rays = render_dict['rays']
+        # n_points = rays.shape[0]
         n_points = self.camera.n_points
 
         results_list = []
@@ -257,15 +147,11 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
 
             # update num_batch in current chunk to kwargs
             raw_output = self.forward_network_batchify(network_data_dict,
-                                                       model, **kwargs)
+                                                       self.generator,
+                                                       **kwargs)
             # 1.4 volume rendering
             render_results = self.volume_rendering(
                 raw_output, z_vals=z_vals_render, ray_vectors=rays_render)
-
-            # NOTE: rerange rgb, disp and acc to [-1, 1], same as official ones
-            for k in render_results:
-                if any([norm_kw in k for norm_kw in ['rgb', 'acc', 'disp']]):
-                    render_results[k] = render_results[k] * 2 - 1
 
             if return_noise:
                 render_results.update(raw_output)
@@ -321,6 +207,12 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
             real_img=data_batch['real_img'], device=device)
         real_pixels = real_dict['real_pixels']
 
+        print(f'fake_pixels: {fake_pixels.shape}')
+        print(f'real_pixels: {real_pixels.shape}')
+
+        import ipdb
+        ipdb.set_trace()
+
         # disc pred for fake imgs and real_imgs
         disc_pred_fake = self.discriminator(fake_pixels)
         disc_pred_real = self.discriminator(real_pixels)
@@ -364,9 +256,6 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
             # loss_scaler.update will be called in runner.train()
         else:
             optimizer['discriminator'].step()
-
-        # update noise in generator
-        self.update_noise(self.generator, self.iteration)
 
         # generator training
         set_requires_grad(self.discriminator, False)
@@ -420,6 +309,9 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         for res_dict in [real_dict, fake_dict]:
             for k, v in res_dict.items():
                 results[k] = v.detach().cpu()
+                # print(k, v.shape)
+        # import ipdb
+        # ipdb.set_trace()
 
         outputs = dict(
             log_vars=log_vars, num_samples=batch_size, results=results)
@@ -456,22 +348,16 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         else:
             _model = self.generator
 
-        # behavior of NoisyReLU is different train between evaluation modes
-        _model.eval()
         outputs = self.forward_render(
             batch_size=num_batches, model=_model, **kwargs)
-        _model.train()
+        # outputs = _model(noise, num_batches=num_batches, **kwargs)
 
         if isinstance(outputs, dict) and 'noise_batch' in outputs:
             noise = outputs['noise_batch']
 
         if sample_model == 'ema/orig' and self.use_ema:
-            # behavior of NoisyReLU is different train between evaluation modes
-            _model.eval()
             _model = self.generator
-            outputs_ = self.forward_render(
-                batch_size=num_batches, model=_model, noise=noise, **kwargs)
-            _model.train()
+            outputs_ = _model(noise, num_batches=num_batches, **kwargs)
 
             if isinstance(outputs_, dict):
                 outputs['rgb_final'] = torch.cat(
