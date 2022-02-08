@@ -88,15 +88,16 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
     #     # 1. load default
     #     config_dict = config.load_config(config_path,
     #                                      op.join(config_root,
-    #                                              'default.yaml'))  # noqa
+    #                                              'default.yaml'))
 
     #     # 2. overwrite
     #     config_nerf = Namespace(**config_dict['nerf'])
     #     # Update config for NERF
+    # let batch size for training with patches limit the maximal memory
     #     config_nerf.chunk = min(
     #         config_dict['training']['chunk'],
     #         1024 * config_dict['training']['batch_size']
-    #     )  # let batch size for training with patches limit the maximal memory # noqa
+    #     )
     #     config_nerf.netchunk = config_dict['training']['netchunk']
     #     config_nerf.white_bkgd = config_dict['data']['white_bkgd']
     #     config_nerf.feat_dim = config_dict['z_dist']['dim']
@@ -439,6 +440,26 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
             self.iteration += 1
         return outputs
 
+    def unflatten_img(self, outputs):
+        """Unflatten image tensor in ``outputs`` to ``[batch_size, 3, H, W]``.
+        Args:
+            outputs (torch.Tensor | dict): Image tensor or dict output.
+
+        Returns:
+            torch.Tensor | dict: Unflattened image tensor or dict contains
+                unflattened image tensor.
+        """
+        img_shape = [self.camera.H, self.camera.W, 3]
+        if isinstance(outputs, dict):
+            num_batches = outputs['rgb_final'].shape[0]
+            target_shape = [num_batches, *img_shape]
+            # only handle 'rgb_final'
+            outputs['rgb_final'] = outputs['rgb_final'].reshape(
+                target_shape).permute(0, 3, 1, 2)
+            return outputs
+        num_batches = outputs.shape[0]
+        return outputs.reshape([num_batches, *img_shape]).permute(0, 3, 1, 2)
+
     def sample_from_noise(self,
                           noise,
                           num_batches=0,
@@ -472,6 +493,7 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         outputs = self.forward_render(
             batch_size=num_batches, model=_model, **kwargs)
         _model.train()
+        outputs = self.unflatten_img(outputs)
 
         if isinstance(outputs, dict) and 'noise_batch' in outputs:
             noise = outputs['noise_batch']
@@ -483,6 +505,7 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
             outputs_ = self.forward_render(
                 batch_size=num_batches, model=_model, noise=noise, **kwargs)
             _model.train()
+            outputs_ = self.unflatten_img(outputs_)
 
             if isinstance(outputs_, dict):
                 outputs['rgb_final'] = torch.cat(
