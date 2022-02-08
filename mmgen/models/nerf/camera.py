@@ -632,7 +632,7 @@ class RandomPoseCamera(Camera):
         sample_dict.update(ray_dict)
 
         # reshape to [bz, H*W, N]
-        target_shape = (batch_size, self.ray_sampler.n_points, -1)
+        target_shape = (batch_size, self.n_points, -1)
         for k, v in sample_dict.items():
             v = v.reshape(target_shape)
             if device is not None:
