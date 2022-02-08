@@ -81,7 +81,7 @@ class PetrelUploadHook(Hook):
             remove_local_file (bool, optional): Whether to removing the local
                 files after uploading. Defaults to True.
         """
-        files = mmcv.scandir(local_dir, suffix=suffix, recursive=False)
+        files = mmcv.scandir(local_dir, suffix=suffix, recursive=True)
         files = [os.path.join(local_dir, x) for x in files]
         # remove the rebundant symlinks in the data directory
         files = [x for x in files if not os.path.islink(x)]
