@@ -52,10 +52,13 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         if test_cfg is not None:
             self._parse_test_cfg()
 
+        # state_dict = torch.load('/space0/home/xingzn/mmgen_dev/nerf/'
+        #                         'work_dirs/ckpts/GRAF-weights/'
+        #                         'carla_128.pt', map_location='cpu')
+
         # from graf.models.discriminator import Discriminator
         # self.discriminator = Discriminator(imsize=32).cuda()
-        # self.nerf_off_kwargs = self.load_official_generator()
-        # self.nerf_off_kwargs[0]['network_fn']
+        # self.nerf_off_kwargs = self.load_official_generator(state_dict)
         # from torch.optim import RMSprop
         # self.gen_opt = RMSprop(
         #     self.nerf_off_kwargs[0]['network_fn'].parameters(),
@@ -65,14 +68,11 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         #     momentum=0,
         #     alpha=0.99)
 
-        # state_dict = torch.load('/space0/home/xingzn/mmgen_dev/nerf/'
-        #                         'work_dirs/ckpts/GRAF-weights/'
-        #                         'carla_128_cvt.pt', map_location='cpu')
         # # ignore disc
         # state_dict = {k: v for k, v in state_dict.items() if 'disc' not in k}
         # self.load_state_dict(state_dict, strict=False)
 
-    # def load_official_generator(self):
+    # def load_official_generator(self, state_dict=None):
     #     from GAN_stability.gan_training import config
     #     from nerf_pytorch import run_nerf_mod
     #     import os.path as op
@@ -87,7 +87,8 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
     #     config_path = op.join(config_root, config_dict[dataset])
     #     # 1. load default
     #     config_dict = config.load_config(config_path,
-    #                                      op.join(config_root, 'default.yaml'))  # noqa
+    #                                      op.join(config_root,
+    #                                              'default.yaml'))  # noqa
 
     #     # 2. overwrite
     #     config_nerf = Namespace(**config_dict['nerf'])
@@ -103,7 +104,12 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
     #         'dim_appearance']
 
     #     nerf_off_args = run_nerf_mod.create_nerf(config_nerf)
+    #     nerf = nerf_off_args[0]['network_fn']
 
+    #     if state_dict is not None:
+    #         nerf.load_state_dict(state_dict['generator_test'])
+
+    #     nerf.cuda()
     #     return nerf_off_args
 
     # def input_to_official(self, batch_size, device):
@@ -117,9 +123,14 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
     #     rays_official = torch.cat([pose[None, ], views[None, ]], dim=0)
     #     return rays_official
 
-    # def forward_official_render(self, batch_size, device, return_noise=False): # noqa
+    # def forward_official_render(self,
+    #                             batch_size,
+    #                             device,
+    #                             return_noise=False,
+    #                             is_train=False):
     #     from nerf_pytorch.run_nerf_mod import render
-    #     nerf_kwargs = self.nerf_off_kwargs[0]
+    #     nerf_kwargs = self.nerf_off_kwargs[0] \
+    #         if is_train else self.nerf_off_kwargs[1]
 
     #     rays = self.input_to_official(batch_size, device)
     #     noise = torch.randn(batch_size, 256).to(device)
@@ -144,7 +155,7 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
     #     if return_noise:
     #         output_dict = dict(rgb_final=rgb, disp_final=disp, acc_final=acc)
     #         return output_dict
-    #     return rgb
+    #     return rgb.reshape(batch_size, -1, 3)
 
     def _parse_train_cfg(self):
         """Parsing train config and set some attributes for training."""
