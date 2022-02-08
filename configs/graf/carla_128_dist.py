@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/unconditional_imgs_128x128_pil_backend.py',
+    '../_base_/datasets/unconditional_imgs_128x128_pil_backend_dist.py',
     '../_base_/models/graf/carla.py', '../_base_/default_runtime.py'
 ]
 
@@ -20,6 +20,14 @@ custom_hooks = [
         interval=5000,
         rerange=False,
         kwargs=dict(sample_model='ema')),
+    # upload ckpts
+    dict(type='PetrelUploadHook', rm_orig=False),
+    # upload imgs
+    dict(
+        type='PetrelUploadHook',
+        rm_orig=False,
+        data_path='training_samples',
+        suffix='.png')
 ]
 
 inception_pkl = './work_dirs/inception_pkl/carla_128.pkl'
