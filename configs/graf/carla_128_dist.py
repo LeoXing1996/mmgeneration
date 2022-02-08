@@ -3,6 +3,7 @@ _base_ = [
     '../_base_/models/graf/carla.py', '../_base_/default_runtime.py'
 ]
 
+ceph_path = 's3://GRAF'
 custom_hooks = [
     dict(
         type='ExponentialMovingAverageHook',
@@ -21,14 +22,22 @@ custom_hooks = [
         rerange=False,
         kwargs=dict(sample_model='ema')),
     # upload ckpts
-    dict(type='PetrelUploadHook', rm_orig=False),
+    dict(type='PetrelUploadHook', ceph_path=ceph_path, rm_orig=False),
     # upload imgs
     dict(
         type='PetrelUploadHook',
+        ceph_path=ceph_path,
         rm_orig=False,
         data_path='training_samples',
         suffix='.png')
 ]
+
+log_config = dict(
+    interval=100,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        dict(type='PaviLoggerHook', init_kwargs=dict(project='GRAF'))
+    ])
 
 inception_pkl = './work_dirs/inception_pkl/carla_128.pkl'
 evaluation = dict(
