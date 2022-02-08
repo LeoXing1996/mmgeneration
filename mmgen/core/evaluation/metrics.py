@@ -422,7 +422,7 @@ class Metric(ABC):
 
     def _calculate_end(self, batch_size, is_real):
         """"""
-        mode = 'real' if is_real else 'fale'
+        mode = 'real' if is_real else 'fake'
         fed = getattr(self, f'num_{mode}_feeded')
         need = getattr(self, f'num_{mode}_need')
         if need == -1:
