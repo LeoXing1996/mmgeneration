@@ -240,8 +240,18 @@ class VisualizeNeRFSamples(Hook):
         H, W = camera.H, camera.W
         for k in output_dict.keys():
             img = output_dict[k]
-            assert img.shape[1] == H * W
-            img = img.reshape((-1, H, W, img.shape[-1])).permute(0, 3, 1, 2)
+            if img.ndim == 3:
+                assert img.shape[1] == H * W
+                img = img.reshape(
+                    (-1, H, W, img.shape[-1])).permute(0, 3, 1, 2)
+            elif img.ndim == 4:
+                assert img.shape[2:] == (H, W)
+            else:
+                raise ValueError(
+                    'The input image must be \'[batch_size, N, H, W]\' (do'
+                    'not unflatten) or \'[batch_size, H*W, N]\' (unflatten).'
+                    f'But receive {img.shape}.')
+
             output_dict[k] = img
         return output_dict
 
@@ -281,19 +291,28 @@ class VisualizeNeRFSamples(Hook):
 
         Args:
             img (torch.Tensor): Images to visualization. Shape like
-                ``[batch_size, n_points, 3]``.
+                ``[batch_size, n_points, 3]`` or ``[batch_size, H, W, 3]``.
         Returns:
             torch.Tensor: Tensor shape like ``[batch_size, n_points, 3]`` and
                 range in ``[0, 1]``.
         """
-        assert img.shape[2] == 3, (
-            'The input image must shape as \'[batch_size, n_points, 3]\', but '
-            f'receive \'{img.shape}\'.')
+        _error_msg = (
+            'The input image must shape as \'[batch_size, n_points, 3]\' or '
+            f'\'[batch_size, 3, H, W]\'k, but receive \'{img.shape}\'.')
+        if img.ndim == 3:
+            assert img.shape[2] == 3 or img.shape[3] == 3, _error_msg
+        elif img.ndim == 4:
+            assert img.shape[1] == 3, _error_msg
+        else:
+            raise ValueError(_error_msg)
 
         if self.rerange:
             img = (img + 1) / 2
         if self.bgr2rgb:
-            img = img[..., [2, 1, 0]]
+            if img.ndim == 3:
+                img = img[..., [2, 1, 0]]
+            else:
+                img = img[:, [2, 1, 0], ...]
         img = img.clamp_(0, 1)
         return img
 
