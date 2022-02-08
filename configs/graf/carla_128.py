@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/unconditional_imgs_128x128.py',
+    '../_base_/datasets/unconditional_imgs_128x128_pil_backend.py',
     '../_base_/models/graf/carla.py', '../_base_/default_runtime.py'
 ]
 
@@ -61,16 +61,16 @@ custom_hooks = [
     #     suffix='.png')
 ]
 
-inception_pkl = './work_dirs/inception_pkl/carla_128.pkl'
+inception_pkl = './work_dirs/inception_pkl/carla_128_pil.pkl'
 evaluation = dict(
     type='GenerativeEvalHook',
     interval=10000,
     metrics=[
         dict(
             type='FID',
-            num_images=2000,
+            num_images=1000,
             inception_pkl=inception_pkl,
-            bgr2rgb=True,
+            bgr2rgb=False,
             inception_args=dict(type='StyleGAN')),
         # dict(type='KID', num_images=2000)
     ],
@@ -78,7 +78,7 @@ evaluation = dict(
     sample_kwargs=dict(sample_model='ema'))
 
 metrics = dict(
-    fid2k=dict(
+    fid1k=dict(
         type='FID',
         num_images=1000,
         inception_pkl=inception_pkl,
