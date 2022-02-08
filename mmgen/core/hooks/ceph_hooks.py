@@ -126,3 +126,25 @@ class PetrelUploadHook(Hook):
             exp_name=exp_name,
             suffix=self.suffix,
             remove_local_file=self.rm_orig)
+
+    @master_only
+    def after_train_iter(self, runner):
+        """The behavior after each train iteration.
+
+        Args:
+            runner (object): The runner.
+        """
+        if not self.every_n_iters(runner, self.interval):
+            return
+
+        _data_path = os.path.join(runner.work_dir, self.data_path)
+        # get the actual exp_name in work_dir
+        exp_name = runner.work_dir.split('/')[-1]
+
+        self.upload_dir(
+            self.client,
+            _data_path,
+            self.ceph_path,
+            exp_name=exp_name,
+            suffix=self.suffix,
+            remove_local_file=self.rm_orig)
