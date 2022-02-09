@@ -515,7 +515,9 @@ class GRAFVisHook(VisualizeNeRFSamples):
         samples = []
         for idx in range(num_samples):
             for k in vis_keys:
-                samples.append(outputs_dict[k][idx])
+                # use the same image if training batch_size < num_samples
+                idx_ = min(idx, outputs_dict[k].shape[0] - 1)
+                samples.append(outputs_dict[k][idx_])
 
         mmcv.mkdir_or_exist(osp.join(runner.work_dir, self.output_dir))
 
@@ -557,6 +559,7 @@ class GRAFVisHook(VisualizeNeRFSamples):
 
         return vis_dict
 
+    @master_only
     def after_train_iter(self, runner):
         """The behavior after each train iteration.
 
