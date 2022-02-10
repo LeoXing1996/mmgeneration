@@ -22,11 +22,16 @@ custom_hooks = [
         rerange=False,
         kwargs=dict(sample_model='ema')),
     # upload ckpts
-    dict(type='PetrelUploadHook', ceph_path=ceph_path, rm_orig=False),
+    dict(
+        type='PetrelUploadHook',
+        ceph_path=ceph_path,
+        interval=5000,
+        rm_orig=False),
     # upload imgs
     dict(
         type='PetrelUploadHook',
         ceph_path=ceph_path,
+        interval=10000,
         rm_orig=False,
         data_path='training_samples',
         suffix='.png')
