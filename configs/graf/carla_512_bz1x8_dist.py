@@ -1,5 +1,5 @@
 _base_ = [
-    '../_base_/datasets/unconditional_imgs_128x128_pil_backend_dist.py',
+    '../_base_/datasets/unconditional_imgs_512x512_pil_backend_dist.py',
     '../_base_/models/graf/carla.py', '../_base_/default_runtime.py'
 ]
 
