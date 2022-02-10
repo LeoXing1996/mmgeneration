@@ -3,6 +3,8 @@ _base_ = [
     '../_base_/models/graf/carla.py', '../_base_/default_runtime.py'
 ]
 
+model = dict(camera=dict(H_range=[0, 128], W_range=[0, 128]))
+
 ceph_path = 's3://GRAF'
 custom_hooks = [
     dict(

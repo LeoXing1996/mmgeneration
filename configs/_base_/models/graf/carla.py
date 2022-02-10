@@ -2,16 +2,16 @@ ray_sampler = dict(
     type='FlexGridRaySampler',
     min_scale=0.25,
     max_scale=1,
-    random_shift=False,
-    random_scale=False,
+    random_shift=True,
+    random_scale=True,
     n_points=1024)
 
 # v_dist: 85 deg, convert to degrees via arccos(1 - 2 * v) * 180. / pi
 camera = dict(
     type='RandomPoseCamera',
     fov=30,
-    H_range=[0, 128],
-    W_range=[0, 128],
+    H_range=None,
+    W_range=None,
     near=7.5,
     far=12.5,
     which_hand='left',
