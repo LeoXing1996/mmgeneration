@@ -6,6 +6,9 @@ _base_ = [
 model = dict(camera=dict(H_range=[0, 512], W_range=[0, 512]))
 
 ceph_path = 's3://GRAF'
+vis_interval = 5000
+save_interval = 10000
+
 custom_hooks = [
     dict(
         type='ExponentialMovingAverageHook',
@@ -19,21 +22,21 @@ custom_hooks = [
         type='GRAFVisHook',
         output_dir='training_samples',
         nrow=2,
-        num_samples=2,
-        interval=5000,
+        num_samples=4,
+        interval=vis_interval,
         rerange=False,
         kwargs=dict(sample_model='ema')),
     # upload ckpts
     dict(
         type='PetrelUploadHook',
         ceph_path=ceph_path,
-        interval=5000,
+        interval=save_interval,
         rm_orig=False),
     # upload imgs
     dict(
         type='PetrelUploadHook',
         ceph_path=ceph_path,
-        interval=10000,
+        interval=vis_interval,
         rm_orig=False,
         data_path='training_samples',
         suffix='.png')
@@ -72,7 +75,7 @@ metrics = dict(
     # kid2k=dict(type='KID'),
 )
 
-total_iters = 640000
+total_iters = 880000  # 880k
 imgs_root = './data/carla'
 data = dict(
     samples_per_gpu=1,
