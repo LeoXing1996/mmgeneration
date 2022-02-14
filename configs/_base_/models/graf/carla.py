@@ -53,7 +53,7 @@ train_cfg = dict(noise_cfg='uniform', use_ema=True)
 test_cfg = None
 
 lr_config = dict(
-    policy='Step', by_epoch=False, step=[50000, 100000, 200000], gamma=0.1)
+    policy='Step', by_epoch=False, step=[50000, 100000, 200000], gamma=0.5)
 
 optimizer = dict(
     generator=dict(type='RMSprop', lr=5e-4, alpha=0.99, eps=1e-8),

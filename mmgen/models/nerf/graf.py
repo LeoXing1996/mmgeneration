@@ -222,12 +222,13 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
             self.render_chunk is None
             or self.render_chunk == -1) else self.render_chunk
 
-        assert render_chunk % n_points == 0, (
+        assert render_chunk % n_points == 0 or render_chunk < n_points, (
             'To make sure each chunk is contains an integer number of '
             'samples, therefore \'render_chunk\' must be divisible by '
             f'\'n_points\'. But received {n_points} and {render_chunk}')
 
-        batch_chunk = render_chunk // n_points
+        batch_chunk = render_chunk // n_points \
+            if render_chunk > n_points else 1
         for batch_s in range(0, batch_size, batch_chunk):
             batch_e = min(batch_s + batch_chunk, batch_size)
 
