@@ -568,6 +568,8 @@ class GRAFVisHook(VisualizeNeRFSamples):
         """
         if not self.every_n_iters(runner, self.interval):
             return
+
+        torch.cuda.empty_cache()
         # eval mode
         runner.model.eval()
         # no grad in sampling
@@ -599,6 +601,7 @@ class GRAFVisHook(VisualizeNeRFSamples):
         if self.get_buffer:
             vis_dict.update(self.vis_buffer(runner))
 
+        torch.cuda.empty_cache()
         # train mode
         runner.model.train()
 
