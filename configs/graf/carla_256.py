@@ -33,7 +33,7 @@ evaluation = dict(
             type='FID',
             num_images=1000,
             inception_pkl=inception_pkl,
-            bgr2rgb=False,
+            bgr2rgb=True,
             inception_args=dict(type='StyleGAN')),
         # dict(type='KID', num_images=2000)
     ],
