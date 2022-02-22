@@ -198,6 +198,9 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         # [n_points, n_samples, 1] to [n_points, n_samples]
         z_vals, sigmas = z_vals.squeeze(), sigmas.squeeze()
 
+        z_vals = z_vals.to(sigmas.device)
+        ray_vectors = z_vals.to(sigmas.device)
+
         # [n_points, n_samples]
         weights = self.get_weight(z_vals, ray_vectors, sigmas)
 
@@ -253,13 +256,19 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
         points_fine = self.camera.sample_points(rays, z_vals_fine, camera_pose)
         return points_fine, z_vals_fine
 
-    def forward_network_batchify(self, data_dict, network, **kwargs):
+    def forward_network_batchify(self,
+                                 data_dict,
+                                 network,
+                                 noise_to_cpu=False,
+                                 **kwargs):
         """Forward the network in chunk. All tensors in ``data_dict`` are shape
         like `[n_points, n_samples, n]`.
 
         Args:
             data_dict (dict): Dict of data feed to the network.
             network (torch.nn.Module): The network used to forward.
+            noise_to_cpu (bool, optional): Whether move intermedia results and
+                noise to cpu. Defaults to False.
 
         Returns:
         """
@@ -295,7 +304,7 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
             raw_output_list.append(raw_output_)
 
         # 4 gather the output dict
-        raw_output = self.concatenate_dict(raw_output_list)
+        raw_output = self.concatenate_dict(raw_output_list, noise_to_cpu)
 
         # 5. reshape to [n_points (render_chunk), n_samples, -1]
         for k in raw_output.keys():
@@ -314,17 +323,23 @@ class BaseNeRF(nn.Module, metaclass=ABCMeta):
                 m.update_noise(curr_iter)
 
     @staticmethod
-    def concatenate_dict(list_of_dict):
+    def concatenate_dict(list_of_dict, move_to_cpu=False):
         """
         Args:
             list_of_dict ([dict, ]): A list contains dicts to be concatenated.
                 All dict have the same keys and values are tensors can be
                 concatenated at the first dimension.
+            move_to_cpu (bool, optional): Whether move the tensor to cpu to
+                save gpu memory. Defaults to False.
         """
         new_dict = dict()
         tar_keys = list_of_dict[0].keys()
         for k in tar_keys:
-            new_dict[k] = torch.cat([d[k] for d in list_of_dict], dim=0)
+            if move_to_cpu:
+                new_dict[k] = torch.cat([d[k].cpu() for d in list_of_dict],
+                                        dim=0)
+            else:
+                new_dict[k] = torch.cat([d[k] for d in list_of_dict], dim=0)
         return new_dict
 
     @abstractclassmethod

@@ -33,6 +33,7 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
                  *args,
                  **kwargs):
 
+        self.counter = 0
         BaseNeRF.__init__(self, *args, **kwargs)
 
         discriminator['input_size'] = self.camera.ray_sampler.N_samples_sqrt
@@ -176,6 +177,7 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         if self.use_ema:
             # use deepcopy to guarantee the consistency
             self.generator_ema = deepcopy(self.generator)
+        self.noise_to_cpu = self.train_cfg.get('noise_to_cpu', True)
 
     def _parse_test_cfg(self):
         """Parsing test config and set some attributes for testing."""
@@ -190,6 +192,12 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         if self.use_ema:
             # use deepcopy to guarantee the consistency
             self.generator_ema = deepcopy(self.generator)
+
+        # move noise from cuda to cpu when 'return_noise' is True,
+        # this is very useful when forward the full resolution image with
+        # return_noise is True, otherwise, all intermedia results will be
+        # saved in cuda and lead to OOM
+        self.noise_to_cpu = self.test_cfg.get('noise_to_cpu', True)
 
     def forward_render(self,
                        batch_size,
@@ -208,6 +216,13 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
 
         device = get_module_device(self)
         kwargs['return_noise'] = return_noise
+        kwargs['noise_to_cpu'] = False if (
+            self.training or not return_noise) else self.noise_to_cpu
+        if not kwargs['noise_to_cpu']:
+            self.counter += 1
+            print(self.counter, kwargs['noise_to_cpu'])
+        else:
+            print(kwargs['noise_to_cpu'])
         render_dict = self.camera.prepare_render_rays(
             batch_size=batch_size, device=device)
         camera_pose = render_dict['camera_pose']
@@ -289,6 +304,8 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
 
         # 2. contentation the results and return
         if return_noise:
+            # do not need to consider `move_to_cpu` again, all tensors are
+            # located at the suitable place.
             results_dict = self.concatenate_dict(results_list)
             results_dict.update(render_dict)
             results_dict = {
