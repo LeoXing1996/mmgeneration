@@ -517,7 +517,12 @@ class GRAFVisHook(VisualizeNeRFSamples):
             for k in vis_keys:
                 # use the same image if training batch_size < num_samples
                 idx_ = min(idx, outputs_dict[k].shape[0] - 1)
-                samples.append(outputs_dict[k][idx_])
+                sample = outputs_dict[k][idx_]
+                if self.rerange:
+                    sample = (sample + 1) / 2
+                if self.bgr2rgb and sample.size(1) == 3:
+                    sample = sample[:, [2, 1, 0], ...]
+                samples.append(sample)
 
         mmcv.mkdir_or_exist(osp.join(runner.work_dir, self.output_dir))
 
@@ -580,13 +585,16 @@ class GRAFVisHook(VisualizeNeRFSamples):
                 num_batches=self.num_samples,
                 return_noise=True,
                 **self.kwargs)
-            noise_ = outputs_dict['noise_batch']
+            # noise_ = outputs_dict['noise_batch']
 
         # initialize samling noise with the first returned noise
         if self.sampling_noise is None and self.fixed_noise:
-            self.sampling_noise = noise_
-            # TODO: support sampling pose
-            self.sampling_pose = None
+            # TODO: support sampling pose and sampling noise
+            # currently, noise is shape as [bz, H*W*N_samples, n_dim],
+            # this is not correct
+            # self.sampling_noise = noise_
+            # self.sampling_pose = None
+            pass
 
         vis_dict = dict()
         for k, v in self.vis_keys_mapping.items():
