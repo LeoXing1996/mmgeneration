@@ -18,7 +18,7 @@ custom_hooks = [
         type='GRAFVisHook',
         output_dir='training_samples',
         nrow=2,
-        num_samples=2,
+        num_samples=4,
         interval=5000,
         rerange=False,
         kwargs=dict(sample_model='ema')),

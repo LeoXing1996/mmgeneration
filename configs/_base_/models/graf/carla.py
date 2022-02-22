@@ -32,7 +32,7 @@ model = dict(
         app_dim=128,
         use_inplace_act=True,
         alpha_act_cfg=dict(
-            type='NoisyReLU', noise_std=1, inplace=True, end_iteration=4000),
+            type='NoisyReLU', noise_std=1, inplace=True, end_iteration=5000),
         pose_embedding=dict(n_freq=4, include_input=True, ignore_pi=True),
         points_embedding=dict(n_freq=10, include_input=True, ignore_pi=True)),
     discriminator=dict(
