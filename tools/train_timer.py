@@ -70,8 +70,6 @@ def main():
     args = parse_args()
 
     cfg_file = args.config
-    import ipdb
-    ipdb.set_trace()
     if args.usezip:
         cfg_file = cfg_file.split('.')[0] + '_zip.py'
 
