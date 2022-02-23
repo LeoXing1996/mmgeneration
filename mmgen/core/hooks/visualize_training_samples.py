@@ -562,6 +562,14 @@ class GRAFVisHook(VisualizeNeRFSamples):
         if 'real_imgs' in self.vis_keys_mapping:
             vis_dict['real_imgs'] = real_imgs.cpu()
 
+        for k, v in vis_dict.items():
+            if v.shape[1] == 3:
+                if self.rerange:
+                    v = (v + 1) / 2
+                if self.bgr2rgb:
+                    v = v[:, [2, 1, 0], ...]
+                vis_dict[k] = v
+
         return vis_dict
 
     @master_only
