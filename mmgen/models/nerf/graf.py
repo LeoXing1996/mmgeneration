@@ -33,7 +33,6 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
                  *args,
                  **kwargs):
 
-        self.counter = 0
         BaseNeRF.__init__(self, *args, **kwargs)
 
         discriminator['input_size'] = self.camera.ray_sampler.N_samples_sqrt
@@ -218,11 +217,6 @@ class GRAF(BaseNeRF, StaticUnconditionalGAN):
         kwargs['return_noise'] = return_noise
         kwargs['noise_to_cpu'] = False if (
             self.training or not return_noise) else self.noise_to_cpu
-        if not kwargs['noise_to_cpu']:
-            self.counter += 1
-            print(self.counter, kwargs['noise_to_cpu'])
-        else:
-            print(kwargs['noise_to_cpu'])
         render_dict = self.camera.prepare_render_rays(
             batch_size=batch_size, device=device)
         camera_pose = render_dict['camera_pose']
