@@ -27,7 +27,7 @@ custom_hooks = [
 inception_pkl = './work_dirs/inception_pkl/carla_128.pkl'
 evaluation = dict(
     type='GenerativeEvalHook',
-    interval=10000,
+    interval=dict(milestones=[1000000], interval=[10000, 5000]),
     metrics=[
         dict(
             type='FID',
