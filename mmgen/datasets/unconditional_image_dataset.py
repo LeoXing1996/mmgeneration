@@ -37,10 +37,21 @@ class UnconditionalImageDataset(Dataset):
 
     def load_annotations(self):
         """Load annotations."""
-        # recursively find all of the valid images from imgs_root
-        imgs_list = mmcv.scandir(
-            self.imgs_root, self._VALID_IMG_SUFFIX, recursive=True)
-        self.imgs_list = [osp.join(self.imgs_root, x) for x in imgs_list]
+        if self.imgs_root.endswith('zip'):
+            import zipfile
+            _zipfile = zipfile.ZipFile(self.imgs_root)
+            imgs_list = _zipfile.namelist()
+            _zipfile.close()
+            self.imgs_list = [
+                img for img in imgs_list if any([
+                    img.endswith(suffix) for suffix in self._VALID_IMG_SUFFIX
+                ])
+            ]
+        else:
+            # recursively find all of the valid images from imgs_root
+            imgs_list = mmcv.scandir(
+                self.imgs_root, self._VALID_IMG_SUFFIX, recursive=True)
+            self.imgs_list = [osp.join(self.imgs_root, x) for x in imgs_list]
 
     def prepare_train_data(self, idx):
         """Prepare training data.
