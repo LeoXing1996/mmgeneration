@@ -29,7 +29,7 @@ def fliter_pipeline(pipelines, zip_path=None):
             pipeline_use.append(pipeline)
             # convert to zip backend
             load_with_zip_backend = deepcopy(pipeline)
-            load_with_zip_backend['io_backend'] = 'ZipBackend'
+            load_with_zip_backend['io_backend'] = 'zip'
             load_with_zip_backend['zip_path'] = zip_path
             pipeline_new.append(load_with_zip_backend)
         elif pipeline['type'] in allowed_pipelines:
