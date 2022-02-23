@@ -14,14 +14,14 @@ custom_hooks = [
         interp_cfg=dict(momentum=0.999),
         priority='VERY_HIGH'),
     dict(type='FlexGridRaySamplerHook', scale_annel=0.0025),
-    dict(
-        type='GRAFVisHook',
-        output_dir='training_samples',
-        nrow=2,
-        num_samples=2,
-        interval=5000,
-        rerange=False,
-        kwargs=dict(sample_model='ema')),
+    # dict(
+    #     type='GRAFVisHook',
+    #     output_dir='training_samples',
+    #     nrow=2,
+    #     num_samples=2,
+    #     interval=5000,
+    #     rerange=False,
+    #     kwargs=dict(sample_model='ema')),
 ]
 
 inception_pkl = './work_dirs/inception_pkl/carla_128.pkl'

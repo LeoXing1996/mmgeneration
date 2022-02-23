@@ -18,14 +18,14 @@ custom_hooks = [
         interp_cfg=dict(momentum=0.999),
         priority='VERY_HIGH'),
     dict(type='FlexGridRaySamplerHook', scale_annel=0.0025),
-    dict(
-        type='GRAFVisHook',
-        output_dir='training_samples',
-        nrow=2,
-        num_samples=2,
-        interval=vis_interval,
-        rerange=False,
-        kwargs=dict(sample_model='ema')),
+    # dict(
+    #     type='GRAFVisHook',
+    #     output_dir='training_samples',
+    #     nrow=2,
+    #     num_samples=2,
+    #     interval=vis_interval,
+    #     rerange=False,
+    #     kwargs=dict(sample_model='ema')),
     # upload ckpts
     dict(
         type='PetrelUploadHook',
@@ -33,13 +33,13 @@ custom_hooks = [
         interval=save_interval,
         rm_orig=False),
     # upload imgs
-    dict(
-        type='PetrelUploadHook',
-        ceph_path=ceph_path,
-        interval=vis_interval,
-        rm_orig=False,
-        data_path='training_samples',
-        suffix='.png')
+    # dict(
+    #     type='PetrelUploadHook',
+    #     ceph_path=ceph_path,
+    #     interval=vis_interval,
+    #     rm_orig=False,
+    #     data_path='training_samples',
+    #     suffix='.png')
 ]
 
 log_config = dict(
