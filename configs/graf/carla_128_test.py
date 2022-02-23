@@ -1,6 +1,6 @@
 _base_ = [
-    '../_base_/models/graf/carla.py', '../_base_/default_runtime.py',
-    '../../c128_zip.py'
+    '../_base_/datasets/unconditional_imgs_128x128_pil_backend_dist.py',
+    '../_base_/models/graf/carla.py', '../_base_/default_runtime.py'
 ]
 
 model = dict(camera=dict(H_range=[0, 128], W_range=[0, 128]))
@@ -51,3 +51,8 @@ metrics = dict(
 )
 
 total_iters = 1000
+imgs_root = './data/carla'
+data = dict(
+    samples_per_gpu=1,
+    train=dict(imgs_root=imgs_root),
+    val=dict(imgs_root=imgs_root))
