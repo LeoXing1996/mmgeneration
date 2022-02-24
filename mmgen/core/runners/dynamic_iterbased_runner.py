@@ -169,6 +169,9 @@ class DynamicIterBasedRunner(IterBasedRunner):
         # flag to use amp in apex (NVIDIA)
         self.use_apex_amp = use_apex_amp
 
+        # buffer to save data time
+        self.data_time_log = []
+
     def call_hook(self, fn_name):
         """Call all hooks.
 
@@ -232,6 +235,10 @@ class DynamicIterBasedRunner(IterBasedRunner):
             raise TypeError('model.train_step() must return a dict')
         if 'log_vars' in outputs:
             self.log_buffer.update(outputs['log_vars'], outputs['num_samples'])
+
+        # save data time to buffer
+        self.data_time_log.append(self.log_buffer.val_history['data_time'][-1])
+
         self.outputs = outputs
         self.call_hook('after_train_iter')
         self._inner_iter += 1

@@ -5,6 +5,7 @@ import os.path as osp
 import time
 
 import mmcv
+import numpy as np
 import torch
 from mmcv import Config, DictAction
 from mmcv.runner import get_dist_info, init_dist
@@ -158,7 +159,7 @@ def main():
                                           get_git_hash()[:7])
     te_dataset = time.time()
 
-    train_model(
+    data_time_log = train_model(
         model,
         datasets,
         cfg,
@@ -168,8 +169,12 @@ def main():
         meta=meta)
     te_train = time.time()
 
-    print(f'Build Dataset Cost:   {te_dataset - ts_dataset}')
-    print(f'Entire Training Cost: {te_train - te_dataset}')
+    mean_data_time = np.array(data_time_log).mean()
+
+    # write to log at last
+    mmcv.print_log(f'Build Dataset Cost:   {te_dataset - ts_dataset}', 'mmgen')
+    mmcv.print_log(f'Mean Data Time:       {mean_data_time:.5f}', 'mmgen')
+    mmcv.print_log(f'Entire Training Cost: {te_train - te_dataset}', 'mmgen')
 
 
 if __name__ == '__main__':

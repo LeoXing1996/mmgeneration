@@ -24,30 +24,4 @@ custom_hooks = [
         kwargs=dict(sample_model='ema'))
 ]
 
-inception_pkl = './work_dirs/inception_pkl/carla_128.pkl'
-evaluation = dict(
-    type='GenerativeEvalHook',
-    interval=dict(milestones=[500000], interval=[10000, 5000]),
-    metrics=[
-        dict(
-            type='FID',
-            num_images=1000,
-            inception_pkl=inception_pkl,
-            bgr2rgb=True,
-            inception_args=dict(type='StyleGAN')),
-        # dict(type='KID', num_images=2000)
-    ],
-    best_metric='fid',
-    sample_kwargs=dict(sample_model='ema'))
-
-metrics = dict(
-    fid1k=dict(
-        type='FID',
-        num_images=1000,
-        inception_pkl=inception_pkl,
-        bgr2rgb=True,
-        inception_args=dict(type='StyleGAN')),
-    # kid2k=dict(type='KID'),
-)
-
-total_iters = 1000
+total_iters = 100000
