@@ -1,164 +1,16 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import math
-from collections import OrderedDict
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from mmgen.models.builder import MODULES
 from .diffaug import DiffAugment
-from .module import (ConvLayer, EqualLinear, LinearBlock, ResBlock, SinBlock,
-                     ToRGB, frequency_init)
+from .module import ConvLayer, EqualLinear, ResBlock
 
 
-@MODULES.register_module('CIPS3DGenerator')
-class CIPSGenerator(nn):
-
-    def __init__(self,
-                 input_dim,
-                 style_dim,
-                 hidden_dim=256,
-                 pre_rgb_dim=32,
-                 device=None,
-                 name_prefix='inr',
-                 **kwargs):
-        """
-
-        :param input_dim:
-        :param style_dim:
-        :param hidden_dim:
-        :param pre_rgb_dim:
-        :param device:
-        :param name_prefix:
-        :param kwargs:
-        """
-        super().__init__()
-
-        self.device = device
-        self.pre_rgb_dim = pre_rgb_dim
-        self.name_prefix = name_prefix
-
-        self.channels = {
-            '4': hidden_dim,
-            '8': hidden_dim,
-            '16': hidden_dim,
-            '32': hidden_dim,
-            '64': hidden_dim,
-            '128': hidden_dim,
-            '256': hidden_dim,
-            '512': hidden_dim,
-            '1024': hidden_dim,
-        }
-
-        self.module_name_list = []
-
-        self.style_dim_dict = {}
-
-        _out_dim = input_dim
-
-        network = OrderedDict()
-        to_rbgs = OrderedDict()
-        for i, (name, channel) in enumerate(self.channels.items()):
-            _in_dim = _out_dim
-            _out_dim = channel
-
-            if name.startswith(('none', )):
-                _linear_block = LinearBlock(
-                    in_dim=_in_dim,
-                    out_dim=_out_dim,
-                    name_prefix=f'{name_prefix}_{name}')
-                network[name] = _linear_block
-            else:
-                _film_block = SinBlock(
-                    in_dim=_in_dim,
-                    out_dim=_out_dim,
-                    style_dim=style_dim,
-                    name_prefix=f'{name_prefix}_w{name}')
-                self.style_dim_dict.update(_film_block.style_dim_dict)
-                network[name] = _film_block
-
-            _to_rgb = ToRGB(
-                in_dim=_out_dim, dim_rgb=pre_rgb_dim, use_equal_fc=False)
-            to_rbgs[name] = _to_rgb
-
-        self.network = nn.ModuleDict(network)
-        self.to_rgbs = nn.ModuleDict(to_rbgs)
-        self.to_rgbs.apply(frequency_init(100))
-        self.module_name_list.append('network')
-        self.module_name_list.append('to_rgbs')
-
-        out_layers = []
-        if pre_rgb_dim > 3:
-            out_layers.append(nn.Linear(pre_rgb_dim, 3))
-        out_layers.append(nn.Tanh())
-        self.tanh = nn.Sequential(*out_layers)
-        # self.tanh.apply(init_func.kaiming_leaky_init)
-        self.tanh.apply(frequency_init(100))
-        self.module_name_list.append('tanh')
-
-        models_dict = {}
-        for name in self.module_name_list:
-            models_dict[name] = getattr(self, name)
-        models_dict['cips'] = self
-
-    def forward_orig(self, input, style_dict, img_size=1024, **kwargs):
-        """
-
-        :param input: points xyz, (b, num_points, 3)
-        :param style_dict:
-        :param ray_directions: (b, num_points, 3)
-        :param kwargs:
-        :return:
-        - out: (b, num_points, 4), rgb(3) + sigma(1)
-        """
-
-        x = input
-        img_size = str(2**int(np.log2(img_size)))
-
-        rgb = 0
-        for idx, (name, block) in enumerate(self.network.items()):
-            # skip = int(name) >= 32
-            if idx >= 4:
-                skip = True
-            else:
-                skip = False
-            x = block(x, style_dict, skip=skip)
-
-            if idx >= 3:
-                rgb = self.to_rgbs[name](x, skip=rgb)
-
-            if name == img_size:
-                break
-
-        out = self.tanh(rgb)
-        return out
-
-    def forward(self,
-                noise,
-                style,
-                return_noise=False,
-                return_label=False,
-                **kwargs):
-        """This function implement a forward function in mmgen's style.
-
-        Args:
-            noise: The input feature.
-            style: The style dict.
-
-        Returns:
-            output: Tensor shape as (bz, n_points, 4) or dict.
-        """
-        output = self.forward_orig(noise, style)
-
-        if return_noise:
-            output_dict = dict(
-                fake_pixels=output, style=style, noise_batch=noise)
-            return output_dict
-        return output
-
-
+@MODULES.register_module()
 class MultiScaleDiscriminator(nn.Module):
 
     def __init__(self,
@@ -313,7 +165,7 @@ class NeRFDiscriminator(MultiScaleDiscriminator):
         MultiScaleDiscriminator.__init__(channels=channels, *args, **kwargs)
 
 
-class CIPSDiscriminator(nn.Module):
+class CIPS3DDiscriminator(nn.Module):
 
     def __init__(self,
                  diffaug,

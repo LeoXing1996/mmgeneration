@@ -1,4 +1,5 @@
 # Copyright (c) OpenMMLab. All rights reserved.
-from generator_discriminator import CIPSDiscriminator, CIPSGenerator
+from discriminator import CIPS3DDiscriminator
+from generator import CIPS3DGenerator
 
-__all__ = ['CIPSGenerator', 'CIPSDiscriminator']
+__all__ = ['CIPS3DGenerator', 'CIPS3DDiscriminator']

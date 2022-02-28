@@ -618,3 +618,88 @@ class ResBlock(nn.Module):
         out = (out + skip) / math.sqrt(2)
 
         return out
+
+
+# --> blocks for NeRF
+
+
+class UniformBoxWarp(nn.Module):
+
+    def __init__(self, sidelength):
+        super().__init__()
+        self.scale_factor = 2 / sidelength
+
+    def forward(self, coordinates):
+        return coordinates * self.scale_factor
+
+
+class LinearScale(nn.Module):
+
+    def __init__(self, scale, bias):
+        super(LinearScale, self).__init__()
+        self.scale_v = scale
+        self.bias_v = bias
+        pass
+
+    def forward(self, x):
+        out = x * self.scale_v + self.bias_v
+        return out
+
+
+class FiLMLayer(nn.Module):
+
+    def __init__(self,
+                 in_dim,
+                 out_dim,
+                 style_dim,
+                 use_style_fc=True,
+                 which_linear=nn.Linear,
+                 **kwargs):
+        super(FiLMLayer, self).__init__()
+
+        self.in_dim = in_dim
+        self.out_dim = out_dim
+        self.style_dim = style_dim
+        self.use_style_fc = use_style_fc
+
+        self.linear = which_linear(in_dim, out_dim)
+        self.linear.apply(frequency_init(25))
+
+        self.gain_scale = LinearScale(scale=15, bias=30)
+        # Prepare gain and bias layers
+        if use_style_fc:
+            self.gain_fc = which_linear(style_dim, out_dim)
+            self.bias_fc = which_linear(style_dim, out_dim)
+            self.gain_fc.weight.data.mul_(0.25)
+            self.bias_fc.weight.data.mul_(0.25)
+        else:
+            self.style_dim = out_dim * 2
+
+    def forward(self, x, style):
+        """
+
+        :param x: (b, c) or (b, n, c)
+        :param style: (b, c)
+        :return:
+        """
+
+        if self.use_style_fc:
+            gain = self.gain_fc(style)
+            gain = self.gain_scale(gain)
+            bias = self.bias_fc(style)
+        else:
+            style = rearrange(style, 'b (n c) -> b n c', n=2)
+            gain, bias = style.unbind(dim=1)
+            gain = self.gain_scale(gain)
+
+        if x.dim() == 3:
+            gain = rearrange(gain, 'b c -> b 1 c')
+            bias = rearrange(bias, 'b c -> b 1 c')
+        elif x.dim() == 2:
+            pass
+        else:
+            assert 0
+
+        x = self.linear(x)
+        out = torch.sin(gain * x + bias)
+        return out
