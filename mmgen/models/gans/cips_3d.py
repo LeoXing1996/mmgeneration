@@ -10,11 +10,9 @@ from ..common import set_requires_grad
 from .base_gan import BaseGAN
 
 
-@MODELS.register_module('INRGAN')
-@MODELS.register_module('InrGAN')
 @MODELS.register_module()
-class ImplicitNeuralRepresentationGAN(BaseGAN):
-    """Implicit Neural Representation GANs.
+class CIPS3D(BaseGAN):
+    """Class for CIPS-3D.
 
     Args:
         generator (dict): Config for generator.
@@ -44,13 +42,13 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
         super().__init__()
         self.num_classes = num_classes
         self._gen_cfg = deepcopy(generator)
-        self.generator = build_module(
-            generator, default_args=dict(num_classes=num_classes))
+        self.G_kwargs = self._gen_cfg.pop('kwargs')
+        self.generator = build_module(self._gen_cfg)
 
         # support no discriminator in testing
         if discriminator is not None:
-            self.discriminator = build_module(
-                discriminator, default_args=dict(num_classes=num_classes))
+            self._disc_cfg = deepcopy(discriminator)
+            self.discriminator = build_module(discriminator)
         else:
             self.discriminator = None
 
@@ -75,6 +73,14 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
                     [self.gen_auxiliary_losses])
         else:
             self.gen_auxiliary_losses = None
+
+        import ipdb
+        ipdb.set_trace()
+
+        state = torch.load('work_dirs/ckpts/CIPS-3D-weights/'
+                           'train_ffhq_high-20220105_143314_190/'
+                           'resume_iter_645500/G_ema.pth')
+        self.generator.load_state_dict(state)
 
         self.train_cfg = deepcopy(train_cfg) if train_cfg else None
         self.test_cfg = deepcopy(test_cfg) if test_cfg else None
@@ -106,6 +112,21 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
             # use deepcopy to guarantee the consistency
             self.generator_ema = deepcopy(self.generator)
 
+        self.img_size = self.train_cfg.get('img_size', None)
+
+        self.nerf_noise_disable = not self.train_cfg.get('nerf_noise', True)
+        self.warmup_alpha = self.train_cfg.get('warmup_D', False)
+        self.fade_step = self.train_cfg.get('fade_step', 10000)
+
+        self.points_per_forward = self.train_cfg.get('points_per_forward', 256)
+        self.grad_points_per_forward = self.train_cfg.get('grad_points', 256)
+
+        # aux discriminator for nerf output
+        self.aux_disc = self.train_cfg.get('aux_disc', True)
+        self.aux_disc_freq = self.train_cfg.get('aux_disc_freq', 1)
+
+        self.use_fp16 = self.train_cfg.get('use_fp16', False)
+
     def _parse_test_cfg(self):
         """Parsing test config and set some attributes for testing."""
         if self.test_cfg is None:
@@ -116,7 +137,46 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
 
         # whether to use exponential moving average for testing
         self.use_ema = self.test_cfg.get('use_ema', False)
-        # TODO: finish ema part
+
+        if self.img_size is None:
+            self.img_size = self.test_cfg.get('img_size', None)
+
+    @property
+    def nerf_noise(self):
+        """Get noise used in nerf process."""
+        if self.nerf_noise_disable:
+            return 0
+        else:
+            return max(0, 1.0 - self.iteration / 5000)
+
+    @property
+    def alpha(self):
+        """Get warmup alpha for discriminator."""
+        if self.warmup_alpha:
+            return min(1, self.iteration / self.fade_step)
+        else:
+            return 1
+
+    @property
+    def aux_reg(self):
+        """Whether use aux discriminator or not."""
+        if self.aux_disc and self.iteration % self.aux_disc_freq == 0:
+            return True
+        return False
+
+    @property
+    def forward_points(self):
+        """How many points are generated in one forward."""
+        if self.img_size >= 256 and self.points_per_forward is not None:
+            return self.points_per_forward**2
+        return None
+
+    @property
+    def grad_points(self):
+        """How many poitns are used to calculate grad."""
+        if self.grad_points_per_forward is not None:
+            return self.grad_points_per_forward
+        return None
 
     def train_step(self,
                    data_batch,
@@ -156,11 +216,13 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
         """
         # get data from data_batch
         real_imgs = data_batch['img']
-        # get the ground-truth label, torch.Tensor (N, )
-        gt_label = data_batch['gt_label']
         # If you adopt ddp, this batch size is local batch size for each GPU.
         # If you adopt dp, this batch size is the global batch size as usual.
         batch_size = real_imgs.shape[0]
+        if self.img_size is None:
+            self.img_size = real_imgs.shape[-1]
+        else:
+            assert self.img_size == real_imgs.shape[-1]
 
         # get running status
         if running_status is not None:
@@ -177,16 +239,36 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
         # do not `zero_grad` during batch accumulation
         if curr_iter % self.batch_accumulation_steps == 0:
             optimizer['discriminator'].zero_grad()
-        # TODO: add noise sampler to customize noise sampling
-        with torch.no_grad():
-            fake_data = self.generator(
-                None, num_batches=batch_size, label=None, return_noise=True)
-            # fake_label should be in the same data type with the gt_label
-            fake_imgs, fake_label = fake_data['fake_img'], fake_data['label']
+
+        with torch.cuda.amp.autocast(self.use_fp16):
+            with torch.no_grad():
+                zs_list = self.generator.module.get_zs(real_imgs.shape[0])
+                fake_imgs, fake_pos = self.generator(
+                    zs_list,
+                    img_size=self.img_size,
+                    nerf_noise=self.get_nerf_noise,
+                    return_aux_img=self.aux_reg,
+                    forward_points=self.forward_points,
+                    grad_points=None,
+                    **self.G_kwargs)
+                # fake_imgs: [img, img_nerf]
+            if self.aux_reg:
+                # one for disc and one for aux disc
+                real_imgs = torch.cat([real_imgs, real_imgs], dim=0)
+                # real_imgs.requires_grad_()
 
         # disc pred for fake imgs and real_imgs
-        disc_pred_fake = self.discriminator(fake_imgs, label=fake_label)
-        disc_pred_real = self.discriminator(real_imgs, label=gt_label)
+        disc_pred_real, _, _ = self.discriminator(
+            real_imgs,
+            alpha=self.alpha,
+            use_aux_disc=self.aux_reg,
+        )
+        disc_pred_fake, _, _ = self.discriminator(
+            real_imgs,
+            alpha=self.alpha,
+            use_aux_disc=self.aux_reg,
+        )
+
         # get data dict to compute losses for disc
         data_dict_ = dict(
             gen=self.generator,
@@ -197,8 +279,6 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
             real_imgs=real_imgs,
             iteration=curr_iter,
             batch_size=batch_size,
-            gt_label=gt_label,
-            fake_label=fake_label,
             loss_scaler=loss_scaler)
 
         loss_disc, log_vars_disc = self._get_disc_loss(data_dict_)
@@ -250,14 +330,22 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
         for _ in range(self.gen_steps):
             optimizer['generator'].zero_grad()
             for _ in range(self.batch_accumulation_steps):
-                # TODO: add noise sampler to customize noise sampling
-                fake_data = self.generator(
-                    None, num_batches=batch_size, return_noise=True)
-                # fake_label should be in the same data type with the gt_label
-                fake_imgs, fake_label = fake_data['fake_img'], fake_data[
-                    'label']
+                zs_list = self.generator.module.get_zs(real_imgs.shape[0])
+
+                with torch.cuda.amp.autocast(self.use_fp16):
+                    fake_imgs, fake_pos = self.generator(
+                        zs_list,
+                        img_size=self.img_size,
+                        nerf_noise=self.get_nerf_noise,
+                        return_aux_img=self.aux_reg,
+                        forward_points=None,
+                        grad_points=None,
+                        **self.G_kwargs)
+
                 disc_pred_fake_g = self.discriminator(
-                    fake_imgs, label=fake_label)
+                    fake_imgs.to(torch.float32),
+                    alpha=self.alpha,
+                    use_aux_disc=self.aux_reg)
 
                 data_dict_ = dict(
                     gen=self.generator,
@@ -266,7 +354,6 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
                     disc_pred_fake_g=disc_pred_fake_g,
                     iteration=curr_iter,
                     batch_size=batch_size,
-                    fake_label=fake_label,
                     loss_scaler=loss_scaler)
 
                 loss_gen, log_vars_g = self._get_gen_loss(data_dict_)
@@ -313,7 +400,6 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
                           noise,
                           num_batches=0,
                           sample_model='ema/orig',
-                          label=None,
                           **kwargs):
         """Sample images from noises by using the generator.
 
@@ -342,19 +428,25 @@ class ImplicitNeuralRepresentationGAN(BaseGAN):
         else:
             _model = self.generator
 
-        outputs = _model(noise, num_batches=num_batches, label=label, **kwargs)
+        g_kwargs_ = deepcopy(self.G_kwargs)
+        g_kwargs_['img_size'] = self.img_size
+        g_kwargs_['psi'] = 1
 
-        if isinstance(outputs, dict) and 'noise_batch' in outputs:
-            noise = outputs['noise_batch']
-            label = outputs['label']
+        zs_list = _model.module.get_zs(batch_size=num_batches)
+        _model.eval()
+        outputs = _model(zs_list, forward_points=256**2, **g_kwargs_)[0]
+        _model.train()
+        # outputs = _model(noise, num_batches=num_batches,
+        #                  label=label, **kwargs)
 
         if sample_model == 'ema/orig' and self.use_ema:
             _model = self.generator
-            outputs_ = _model(
-                noise, num_batches=num_batches, label=label, **kwargs)
+            _model.eval()
+            outputs_ = _model(zs_list, forward_poinst=256**2, *g_kwargs_)[0]
+            _model.train()
 
             if isinstance(outputs_, dict):
-                outputs['fake_img'] = torch.cat(
+                outputs_['fake_img'] = torch.cat(
                     [outputs['fake_img'], outputs_['fake_img']], dim=0)
             else:
                 outputs = torch.cat([outputs, outputs_], dim=0)

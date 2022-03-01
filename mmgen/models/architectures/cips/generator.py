@@ -6,13 +6,13 @@ import numpy as np
 import torch
 import torch.nn as nn
 from einops import rearrange
-from generator_style_mapping import \
-    MultiHeadMappingNetwork as GenMultiHeadMappingNetwork
 
 from mmgen.models.builder import MODULES
 from .camera_utils import fancy_integration
 from .comm_utils import (gather_points, get_world_points_and_direction,
                          scatter_points)
+from .generator_style_mapping import \
+    MultiHeadMappingNetwork as GenMultiHeadMappingNetwork
 from .inr_nerf_base import GeneratorNerfINR
 from .module import (FiLMLayer, LinearBlock, SinBlock, ToRGB, UniformBoxWarp,
                      frequency_init, kaiming_leaky_init)
@@ -29,7 +29,7 @@ class CIPS3DGenerator(GeneratorNerfINR):
                  mapping_inr_cfg,
                  device='cuda',
                  **kwargs):
-        super().__init__()
+        super(GeneratorNerfINR, self).__init__()
 
         self.epoch = 0
         self.step = 0
@@ -1046,7 +1046,7 @@ class CIPSGenerator(nn.Module):
             models_dict[name] = getattr(self, name)
         models_dict['cips'] = self
 
-    def forward_orig(self, input, style_dict, img_size=1024, **kwargs):
+    def forward(self, input, style_dict, img_size=1024, **kwargs):
         """
 
         :param input: points xyz, (b, num_points, 3)
@@ -1077,26 +1077,3 @@ class CIPSGenerator(nn.Module):
 
         out = self.tanh(rgb)
         return out
-
-    def forward(self,
-                noise,
-                style,
-                return_noise=False,
-                return_label=False,
-                **kwargs):
-        """This function implement a forward function in mmgen's style.
-
-        Args:
-            noise: The input feature.
-            style: The style dict.
-
-        Returns:
-            output: Tensor shape as (bz, n_points, 4) or dict.
-        """
-        output = self.forward_orig(noise, style)
-
-        if return_noise:
-            output_dict = dict(
-                fake_pixels=output, style=style, noise_batch=noise)
-            return output_dict
-        return output

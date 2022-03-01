@@ -10,7 +10,6 @@ from .diffaug import DiffAugment
 from .module import ConvLayer, EqualLinear, ResBlock
 
 
-@MODULES.register_module()
 class MultiScaleDiscriminator(nn.Module):
 
     def __init__(self,
@@ -162,9 +161,11 @@ class NeRFDiscriminator(MultiScaleDiscriminator):
             512: 32 * channel_multiplier,
             1024: 16 * channel_multiplier,
         }
-        MultiScaleDiscriminator.__init__(channels=channels, *args, **kwargs)
+        MultiScaleDiscriminator.__init__(
+            self, channels=channels, *args, **kwargs)
 
 
+@MODULES.register_module()
 class CIPS3DDiscriminator(nn.Module):
 
     def __init__(self,

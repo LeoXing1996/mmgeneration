@@ -401,7 +401,7 @@ class EqualConvTranspose2d(nn.Module):
         return out
 
 
-class ToRGB(nn):
+class ToRGB(nn.Module):
 
     def __init__(self, in_dim, dim_rgb=3, use_equal_fc=False):
         super().__init__()

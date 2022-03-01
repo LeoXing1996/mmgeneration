@@ -2,6 +2,7 @@
 from .arcface import IDLossModel
 from .biggan import (BigGANDeepDiscriminator, BigGANDeepGenerator,
                      BigGANDiscriminator, BigGANGenerator, SNConvModule)
+from .cips import CIPS3DDiscriminator, CIPS3DGenerator
 from .cyclegan import ResnetGenerator
 from .dcgan import DCGANDiscriminator, DCGANGenerator
 from .ddpm import DenoisingUnet
@@ -38,5 +39,6 @@ __all__ = [
     'LSGANDiscriminator', 'LSGANGenerator', 'ProjDiscriminator',
     'SNGANGenerator', 'BigGANGenerator', 'SNConvModule', 'BigGANDiscriminator',
     'BigGANDeepGenerator', 'BigGANDeepDiscriminator', 'DenoisingUnet',
-    'StyleGANv3Generator', 'IDLossModel'
+    'StyleGANv3Generator', 'IDLossModel', 'CIPS3DDiscriminator',
+    'CIPS3DGenerator'
 ]
