@@ -74,14 +74,6 @@ class CIPS3D(BaseGAN):
         else:
             self.gen_auxiliary_losses = None
 
-        import ipdb
-        ipdb.set_trace()
-
-        state = torch.load('work_dirs/ckpts/CIPS-3D-weights/'
-                           'train_ffhq_high-20220105_143314_190/'
-                           'resume_iter_645500/G_ema.pth')
-        self.generator.load_state_dict(state)
-
         self.train_cfg = deepcopy(train_cfg) if train_cfg else None
         self.test_cfg = deepcopy(test_cfg) if test_cfg else None
 
@@ -215,7 +207,7 @@ class CIPS3D(BaseGAN):
             dict: Contains 'log_vars', 'num_samples', and 'results'.
         """
         # get data from data_batch
-        real_imgs = data_batch['img']
+        real_imgs = data_batch['real_img']
         # If you adopt ddp, this batch size is local batch size for each GPU.
         # If you adopt dp, this batch size is the global batch size as usual.
         batch_size = real_imgs.shape[0]
@@ -226,7 +218,7 @@ class CIPS3D(BaseGAN):
 
         # get running status
         if running_status is not None:
-            curr_iter = running_status['iteration']
+            self.iteration = curr_iter = running_status['iteration']
         else:
             # dirty walkround for not providing running status
             if not hasattr(self, 'iteration'):
@@ -242,14 +234,16 @@ class CIPS3D(BaseGAN):
 
         with torch.cuda.amp.autocast(self.use_fp16):
             with torch.no_grad():
-                zs_list = self.generator.module.get_zs(real_imgs.shape[0])
+                # zs_list = self.generator.module.get_zs(real_imgs.shape[0])
+                zs_list = self.generator.get_zs(real_imgs.shape[0])
                 fake_imgs, fake_pos = self.generator(
                     zs_list,
                     img_size=self.img_size,
-                    nerf_noise=self.get_nerf_noise,
+                    nerf_noise=self.nerf_noise,
                     return_aux_img=self.aux_reg,
                     forward_points=self.forward_points,
                     grad_points=None,
+                    hierarchical_sample=False,
                     **self.G_kwargs)
                 # fake_imgs: [img, img_nerf]
             if self.aux_reg:
@@ -258,16 +252,16 @@ class CIPS3D(BaseGAN):
                 # real_imgs.requires_grad_()
 
         # disc pred for fake imgs and real_imgs
-        disc_pred_real, _, _ = self.discriminator(
+        disc_pred_real = self.discriminator(
             real_imgs,
             alpha=self.alpha,
             use_aux_disc=self.aux_reg,
-        )
-        disc_pred_fake, _, _ = self.discriminator(
+            return_latent=False)
+        disc_pred_fake = self.discriminator(
             real_imgs,
             alpha=self.alpha,
             use_aux_disc=self.aux_reg,
-        )
+            return_latent=False)
 
         # get data dict to compute losses for disc
         data_dict_ = dict(
@@ -330,22 +324,25 @@ class CIPS3D(BaseGAN):
         for _ in range(self.gen_steps):
             optimizer['generator'].zero_grad()
             for _ in range(self.batch_accumulation_steps):
-                zs_list = self.generator.module.get_zs(real_imgs.shape[0])
+                # zs_list = self.generator.module.get_zs(real_imgs.shape[0])
+                zs_list = self.generator.get_zs(real_imgs.shape[0])
 
                 with torch.cuda.amp.autocast(self.use_fp16):
                     fake_imgs, fake_pos = self.generator(
                         zs_list,
                         img_size=self.img_size,
-                        nerf_noise=self.get_nerf_noise,
+                        nerf_noise=self.nerf_noise,
                         return_aux_img=self.aux_reg,
                         forward_points=None,
                         grad_points=None,
+                        hierarchical_sample=False,
                         **self.G_kwargs)
 
                 disc_pred_fake_g = self.discriminator(
                     fake_imgs.to(torch.float32),
                     alpha=self.alpha,
-                    use_aux_disc=self.aux_reg)
+                    use_aux_disc=self.aux_reg,
+                    return_latent=False)
 
                 data_dict_ = dict(
                     gen=self.generator,

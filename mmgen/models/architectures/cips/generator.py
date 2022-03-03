@@ -202,7 +202,8 @@ class CIPS3DGenerator(GeneratorNerfINR):
                            forward_points=None,
                            camera_pos=None,
                            camera_lookup=None,
-                           up_vector=None):
+                           up_vector=None,
+                           return_nerf_fea=False):  # add by us
         device = self.device
         # batch_size = z.shape[0]
         batch_size = list(style_dict.values())[0].shape[0]
@@ -214,8 +215,13 @@ class CIPS3DGenerator(GeneratorNerfINR):
                 inr_img_output = torch.zeros((batch_size, num_points, 3),
                                              device=device)
                 if return_aux_img:
-                    aux_img_output = torch.zeros((batch_size, num_points, 3),
-                                                 device=device)
+                    if return_nerf_fea:
+                        aux_img_output = torch.zeros(
+                            (batch_size, num_points, 3 + self.siren.rgb_dim),
+                            device=device)
+                    else:
+                        aux_img_output = torch.zeros(
+                            (batch_size, num_points, 3), device=device)
                 pitch_list = []
                 yaw_list = []
                 for b in range(batch_size):
@@ -282,6 +288,7 @@ class CIPS3DGenerator(GeneratorNerfINR):
                             white_back=white_back,
                             last_back=last_back,
                             return_aux_img=return_aux_img,
+                            return_nerf_fea=return_nerf_fea  # add by us
                         )
                         inr_img_output[b:b + 1, head:tail] = cur_inr_img
                         if return_aux_img:
@@ -351,7 +358,20 @@ class CIPS3DGenerator(GeneratorNerfINR):
         pitch_yaw = torch.cat([pitch, yaw], -1)
 
         if return_aux_img:
+            # import ipdb
+            # ipdb.set_trace()
             aux_img = rearrange(aux_img, 'b (h w) c -> b c h w', h=img_size)
+            if return_nerf_fea:
+                assert aux_img.shape[1] == 3 + self.siren.rgb_dim
+                aux_img, nerf_feat = torch.split(
+                    aux_img, [3, self.siren.rgb_dim], dim=1)
+                # handle nerf_feat  TODO: change
+                nerf_feat = nerf_feat.sum(dim=1, keepdim=True)
+                nerf_max = nerf_feat.abs().max()
+                nerf_feat = nerf_feat / nerf_max
+                nerf_feat = torch.cat([nerf_feat] * 3, dim=1)
+
+                aux_img = torch.cat([aux_img, nerf_feat])
 
             imgs = torch.cat([inr_img, aux_img])
             pitch_yaw = torch.cat([pitch_yaw, pitch_yaw])
@@ -492,21 +512,22 @@ class CIPS3DGenerator(GeneratorNerfINR):
         return imgs, pitch_yaw
 
     def points_forward(
-        self,
-        style_dict,
-        transformed_points,
-        transformed_ray_directions_expanded,
-        num_steps,
-        hierarchical_sample,
-        z_vals,
-        clamp_mode,
-        nerf_noise,
-        transformed_ray_origins,
-        transformed_ray_directions,
-        white_back,
-        last_back,
-        return_aux_img,
-        idx_grad=None,
+            self,
+            style_dict,
+            transformed_points,
+            transformed_ray_directions_expanded,
+            num_steps,
+            hierarchical_sample,
+            z_vals,
+            clamp_mode,
+            nerf_noise,
+            transformed_ray_origins,
+            transformed_ray_directions,
+            white_back,
+            last_back,
+            return_aux_img,
+            idx_grad=None,
+            return_nerf_fea=False,  # add by us
     ):
         """
 
@@ -605,6 +626,8 @@ class CIPS3DGenerator(GeneratorNerfINR):
         if return_aux_img:
             # aux rgb_branch
             aux_img = self.aux_to_rbg(pixels_fea)
+            if return_nerf_fea:
+                aux_img = torch.cat([aux_img, pixels_fea], dim=-1)
         else:
             aux_img = None
 
@@ -671,32 +694,34 @@ class CIPS3DGenerator(GeneratorNerfINR):
         # self.generate_avg_frequencies()
         pass
 
-    def forward_camera_pos_and_lookup(self,
-                                      zs,
-                                      img_size,
-                                      fov,
-                                      ray_start,
-                                      ray_end,
-                                      num_steps,
-                                      h_stddev,
-                                      v_stddev,
-                                      h_mean,
-                                      v_mean,
-                                      hierarchical_sample,
-                                      camera_pos,
-                                      camera_lookup,
-                                      psi=1,
-                                      sample_dist=None,
-                                      lock_view_dependence=False,
-                                      clamp_mode='relu',
-                                      nerf_noise=0.0,
-                                      white_back=False,
-                                      last_back=False,
-                                      return_aux_img=False,
-                                      grad_points=None,
-                                      forward_points=None,
-                                      up_vector=None,
-                                      **kwargs):
+    def forward_camera_pos_and_lookup(
+            self,
+            zs,
+            img_size,
+            fov,
+            ray_start,
+            ray_end,
+            num_steps,
+            h_stddev,
+            v_stddev,
+            h_mean,
+            v_mean,
+            hierarchical_sample,
+            camera_pos,
+            camera_lookup,
+            psi=1,
+            sample_dist=None,
+            lock_view_dependence=False,
+            clamp_mode='relu',
+            nerf_noise=0.0,
+            white_back=False,
+            last_back=False,
+            return_aux_img=False,
+            grad_points=None,
+            forward_points=None,
+            up_vector=None,
+            return_nerf_fea=False,  # add by us
+            **kwargs):
         """Generates images from a noise vector, rendering parameters, and
         camera distribution. Uses the hierarchical sampling scheme described in
         NeRF.
@@ -786,6 +811,7 @@ class CIPS3DGenerator(GeneratorNerfINR):
                 camera_pos=camera_pos,
                 camera_lookup=camera_lookup,
                 up_vector=up_vector,
+                return_nerf_fea=return_nerf_fea  # add by us
             )
             return imgs, pitch_yaw
 

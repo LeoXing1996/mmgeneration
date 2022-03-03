@@ -483,3 +483,97 @@ def z_sampler(shape, device, dist):
     elif dist == 'uniform':
         z = torch.rand(shape, device=device) * 2 - 1
     return z
+
+
+# --> sample poses for evaluation
+def get_yaw_pitch_by_xyz(x, y, z):
+    yaw = math.atan2(z, x)
+    pitch = math.atan2(math.sqrt(x**2 + z**2), y)
+    return yaw, pitch
+
+
+def _get_translate_distance(num_samples, translate_dist):
+    num_samples_every = num_samples // 4
+    dist_list = []
+
+    dist_list.append(np.linspace(0, translate_dist, num_samples_every))
+    dist_list.append(np.linspace(translate_dist, 0, num_samples_every))
+    dist_list.append(np.linspace(0, -translate_dist, num_samples_every))
+    dist_list.append(np.linspace(-translate_dist, 0, num_samples_every))
+    dist_list = np.concatenate(dist_list, axis=0)
+    return dist_list
+
+
+def get_circle_camera_pos_and_lookup(r=1,
+                                     alpha=3.141592 / 6,
+                                     num_samples=36,
+                                     periods=2):
+    num_samples = num_samples * periods
+    xyz = np.zeros((num_samples, 3), dtype=np.float32)
+
+    xyz[:, 2] = r * math.cos(alpha)
+    z_sin = r * math.sin(alpha)
+
+    for idx, t in enumerate(np.linspace(1, 0, num_samples)):
+        beta = t * 2 * math.pi * periods
+        xyz[idx, 0] = z_sin * math.cos(beta)
+        xyz[idx, 1] = z_sin * math.sin(beta)
+    lookup = -xyz
+
+    yaws = np.zeros(num_samples)
+    pitchs = np.zeros(num_samples)
+    for idx, (x, y, z) in enumerate(xyz):
+        yaw, pitch = get_yaw_pitch_by_xyz(x, y, z)
+        yaws[idx] = yaw
+        pitchs[idx] = pitch
+
+    return xyz, lookup, yaws, pitchs
+
+
+def get_translate_circle_camera_pos_and_lookup(r=1,
+                                               num_samples_translate=36,
+                                               translate_dist=0.5,
+                                               alpha=3.141592 / 6,
+                                               num_samples=36,
+                                               periods=2):
+    trans_dist = _get_translate_distance(
+        num_samples=num_samples_translate, translate_dist=translate_dist)
+    num_samples_translate = len(trans_dist)
+
+    translateX_xyz = np.zeros((num_samples_translate, 3), dtype=np.float32)
+    translateX_lookup = np.zeros((num_samples_translate, 3), dtype=np.float32)
+    translateX_lookup[:, 2] = -1
+    for idx, t in enumerate(trans_dist):
+        translateX_xyz[idx, 0] = t
+        translateX_xyz[idx, 2] = r * math.cos(alpha)
+
+    translateY_xyz = np.zeros((num_samples_translate, 3), dtype=np.float32)
+    translateY_xyz[:, 1] = translateX_xyz[:, 0]
+    translateY_xyz[:, 2] = translateX_xyz[:, 2]
+    translateY_lookup = translateX_lookup
+
+    num_samples = num_samples * periods
+    xyz = np.zeros((num_samples, 3), dtype=np.float32)
+
+    xyz[:, 2] = r * math.cos(alpha)
+    z_sin = r * math.sin(alpha)
+
+    for idx, t in enumerate(np.linspace(1, 0, num_samples)):
+        beta = t * 2 * math.pi * periods
+        xyz[idx, 0] = z_sin * math.cos(beta)
+        xyz[idx, 1] = z_sin * math.sin(beta)
+    lookup = -xyz
+
+    xyz = np.concatenate((translateX_xyz, translateY_xyz, xyz), axis=0)
+    lookup = np.concatenate((translateX_lookup, translateY_lookup, lookup),
+                            axis=0)
+
+    num_samples = len(xyz)
+    yaws = np.zeros(num_samples)
+    pitchs = np.zeros(num_samples)
+    for idx, (x, y, z) in enumerate(xyz):
+        yaw, pitch = get_yaw_pitch_by_xyz(x, y, z)
+        yaws[idx] = yaw
+        pitchs[idx] = pitch
+
+    return xyz, lookup, yaws, pitchs, num_samples_translate

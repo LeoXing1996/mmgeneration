@@ -194,12 +194,14 @@ class CIPS3DDiscriminator(nn.Module):
             first_downsample=True,
             stddev_group=stddev_group)
 
-    def forward(self,
-                input,
-                use_aux_disc=False,
-                summary_ddict=None,
-                alpha=1.,
-                **kwargs):
+    def forward(
+            self,
+            input,
+            use_aux_disc=False,
+            summary_ddict=None,
+            alpha=1.,
+            return_latent=False,  # add by us
+            **kwargs):
 
         if use_aux_disc:
             b = input.shape[0] // 2
@@ -213,4 +215,6 @@ class CIPS3DDiscriminator(nn.Module):
             out, latent, position = self.main_disc(
                 input, alpha, summary_ddict=summary_ddict)
 
-        return out, latent, position
+        if return_latent:
+            return out, latent, position
+        return out

@@ -2,7 +2,10 @@
 from .arcface import IDLossModel
 from .biggan import (BigGANDeepDiscriminator, BigGANDeepGenerator,
                      BigGANDiscriminator, BigGANGenerator, SNConvModule)
-from .cips import CIPS3DDiscriminator, CIPS3DGenerator
+from .cips import (CIPS3DDiscriminator, CIPS3DGenerator,
+                   get_circle_camera_pos_and_lookup,
+                   get_translate_circle_camera_pos_and_lookup,
+                   get_yaw_pitch_by_xyz)
 from .cyclegan import ResnetGenerator
 from .dcgan import DCGANDiscriminator, DCGANGenerator
 from .ddpm import DenoisingUnet
@@ -40,5 +43,6 @@ __all__ = [
     'SNGANGenerator', 'BigGANGenerator', 'SNConvModule', 'BigGANDiscriminator',
     'BigGANDeepGenerator', 'BigGANDeepDiscriminator', 'DenoisingUnet',
     'StyleGANv3Generator', 'IDLossModel', 'CIPS3DDiscriminator',
-    'CIPS3DGenerator'
+    'CIPS3DGenerator', 'get_circle_camera_pos_and_lookup',
+    'get_translate_circle_camera_pos_and_lookup', 'get_yaw_pitch_by_xyz'
 ]
